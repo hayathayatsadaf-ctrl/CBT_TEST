@@ -1,245 +1,353 @@
+const fs       = require("fs");
+const pdfParse = require("pdf-parse");
 const Question = require("../models/Question");
-const Test = require("../models/Test");
-const https = require("https");
+const Test     = require("../models/Test");
 
-// ══════════════════════════════════════════════════════════════════
-// PDF TEXT EXTRACTOR — pdfjs-dist
-// ══════════════════════════════════════════════════════════════════
-async function pdfParseBuffer(buffer) {
-  let pdfjsLib;
-  try { pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js"); }
-  catch(e) {
-    try { pdfjsLib = require("pdfjs-dist"); }
-    catch(e2) { pdfjsLib = require("pdfjs-dist/build/pdf.js"); }
-  }
-  if (pdfjsLib.GlobalWorkerOptions) pdfjsLib.GlobalWorkerOptions.workerSrc = false;
-
-  const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(buffer),
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-    standardFontDataUrl: null,
-  });
-
-  const pdf = await loadingTask.promise;
-  let fullText = "";
-
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    for (const item of content.items) {
-      if (!item.str) continue;
-      const s = item.str.trim();
-      if (/^Q\d+[.)]/.test(s) || /^\([A-D]\)/.test(s)) {
-        fullText += "\n" + item.str;
-      } else {
-        fullText += " " + item.str;
-      }
-    }
-    fullText += "\n";
-  }
-
-  // Post-process: split on Q\d+ mid-line
-  fullText = fullText
-    .replace(/\s+(Q\d+[.)]\s)/g, "\n$1")
-    .replace(/\s+(\([A-D]\)\s)/g, "\n$1");
-
-  return { text: fullText };
-}
-
-// ══════════════════════════════════════════════════════════════════
-// GROQ AI PARSER — free, fast Llama model
-// ══════════════════════════════════════════════════════════════════
-async function parseWithGroq(pyqText, answerText) {
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in environment");
-
-  const prompt = `You are a question paper parser. Extract all questions from the question paper and match with answer key.
-
-QUESTION PAPER:
-${pyqText.slice(0, 12000)}
-
-ANSWER KEY:
-${answerText.slice(0, 4000)}
-
-Return ONLY a valid JSON array. No explanation, no markdown, no extra text. Example:
-[
-  {
-    "questionNumber": 1,
-    "question": "Full question text",
-    "type": "MCQ",
-    "options": ["option A text", "option B text", "option C text", "option D text"],
-    "correctAnswer": "option B text",
-    "section": "General Aptitude",
-    "marks": 1,
-    "negativeMarks": 0.33
-  },
-  {
-    "questionNumber": 3,
-    "question": "NAT question text",
-    "type": "NAT",
-    "options": [],
-    "correctAnswer": "9",
-    "section": "Operating Systems",
-    "marks": 1,
-    "negativeMarks": 0
-  }
-]
-
-Rules:
-- type: "MCQ" or "NAT" only
-- MCQ correctAnswer: full option text (not just A/B/C/D)
-- NAT correctAnswer: numeric value as string
-- section: from headings e.g. "General Aptitude", "Data Structures"
-- marks: 1 or 2
-- negativeMarks: 0.33 for 1-mark MCQ, 0.66 for 2-mark MCQ, 0 for NAT
-- Extract ALL questions without skipping
-- Return ONLY the JSON array`;
-
-  const body = JSON.stringify({
-    model: "llama-3.3-70b-versatile",
-    max_tokens: 8000,
-    temperature: 0,
-    messages: [{ role: "user", content: prompt }]
-  });
-
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: "api.groq.com",
-      path: "/openai/v1/chat/completions",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-        "Content-Length": Buffer.byteLength(body)
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try {
-          const response = JSON.parse(data);
-          if (response.error) return reject(new Error(response.error.message));
-          const text = response.choices[0].message.content.trim();
-          // Strip markdown code blocks if present
-          const clean = text
-            .replace(/^```json\s*/i, "")
-            .replace(/^```\s*/i, "")
-            .replace(/```\s*$/i, "")
-            .trim();
-          const questions = JSON.parse(clean);
-          resolve(questions);
-        } catch(e) {
-          reject(new Error("Groq response parse failed: " + e.message));
-        }
-      });
-    });
-
-    req.on("error", reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-// ══════════════════════════════════════════════════════════════════
-// MAIN UPLOAD HANDLER
-// ══════════════════════════════════════════════════════════════════
-exports.uploadPDFs = async (req, res) => {
+// ── PDF TEXT EXTRACTOR ─────────────────────────────────────────────
+async function extractText(filePath) {
+  const buffer = fs.readFileSync(filePath);
   try {
-    console.log("FILES RECEIVED:", req.files);
+    const data = await pdfParse(buffer);
+    return data.text || "";
+  } catch (e) {
+    console.error("PDF parse error:", e.message);
+    return "";
+  }
+}
 
+// ── OCR NUMBER FIXER ───────────────────────────────────────────────
+// OCR garbles numbers — fix common mistakes
+function fixOcrNumber(raw) {
+  if (!raw) return null;
+  const s = raw.trim()
+    .replace(/[—_\-]/g, "")   // remove leading dashes/underscores
+    .replace(/,/g, "")         // remove commas
+    .replace(/\s+/g, "")       // remove spaces
+    .replace(/^[^0-9]*/, "")   // strip leading non-digits
+    // common OCR digit errors
+    .replace(/o/gi, "0")
+    .replace(/l(?=\d)/gi, "1")
+    .replace(/I(?=\d)/gi, "1")
+    .replace(/%/g, "6")        // "1%" → "16"
+    .replace(/m(\d)/i, "1$1")  // "m4" → "14"
+    .replace(/st$/i, "51")     // "st" → "51"
+    .replace(/sf$/i, "57");    // "sf" → "57"
+  const n = parseInt(s);
+  return isNaN(n) ? null : n;
+}
+
+// ── MCQ ANSWER CLEANER ─────────────────────────────────────────────
+function cleanMcqAnswer(raw) {
+  if (!raw) return null;
+  const s = raw.trim()
+    .replace(/[()[\]]/g, "")  // remove brackets
+    .toUpperCase();
+  // take first letter A-D
+  const m = s.match(/[A-D]/);
+  return m ? m[0] : null;
+}
+
+// ── ANSWER KEY PARSER ──────────────────────────────────────────────
+// Handles garbled OCR table: "— m4 | mca | cs2 | A | 1"
+function parseAnswerMap(ansLines) {
+  const map = {};
+
+  // Known Q numbers from GATE 2017 CS in order
+  // We process sequentially and assign in order when number is unreadable
+  let seqNum = 0;
+
+  for (let line of ansLines) {
+    line = line.trim();
+    if (!line || line.length < 3) continue;
+
+    // Skip header/page lines
+    if (/Q\.No\.|answer key|source:|page \d|^nn |^mm /i.test(line)) continue;
+
+    // ── GATE table format: "1 | MCQ | CS2 | D | 1" ──────────────
+    // Very flexible — handles OCR garbage in Q.No column
+    const colSplit = line.split("|").map(c => c.trim());
+    if (colSplit.length >= 4) {
+      const rawNum  = colSplit[0];
+      const rawType = colSplit[1];
+      const rawKey  = colSplit[colSplit.length >= 5 ? 3 : 2];
+      const rawMark = colSplit[colSplit.length - 1];
+
+      const isTypeMCQ = /MCQ|MCA|mca/i.test(rawType);
+      const isTypeNAT = /NAT/i.test(rawType);
+      if (!isTypeMCQ && !isTypeNAT) continue;
+
+      const type  = isTypeNAT ? "NAT" : "MCQ";
+      const marks = parseInt(rawMark) || 1;
+      const qno   = fixOcrNumber(rawNum);
+
+      // Parse answer/key
+      let key = rawKey.trim();
+
+      if (type === "NAT") {
+        // "0.0t000" or "90t090" or "472t0472" → take value before "to"/"t0"
+        key = key.replace(/t0+/i, "to").split(/to/i)[0].trim();
+        // clean spaces: "6 20" → "6.20"? No — "6 20" is OCR of "6.20"
+        key = key.replace(/\s+/g, ".");
+        // Remove trailing dots
+        key = key.replace(/\.$/, "");
+      } else {
+        // MCQ — extract A/B/C/D
+        const cleaned = cleanMcqAnswer(key);
+        if (!cleaned) continue;
+        key = cleaned;
+      }
+
+      if (qno) {
+        map[String(qno)] = { answer: key, type, marks, negativeMarks: type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33 };
+      }
+      continue;
+    }
+
+    // ── Simple format: "1. A" or "Q1. B" ─────────────────────────
+    const simple = line.match(/^Q?(\d+)[.)]\s*([A-D])\s*$/i);
+    if (simple) {
+      map[simple[1]] = { answer: simple[2].toUpperCase(), type: "MCQ", marks: 1, negativeMarks: 0.33 };
+      continue;
+    }
+
+    // ── NAT simple: "19. 0" ───────────────────────────────────────
+    const natSimple = line.match(/^Q?(\d+)[.)]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (natSimple) {
+      map[natSimple[1]] = { answer: natSimple[2], type: "NAT", marks: 1, negativeMarks: 0 };
+    }
+  }
+
+  return map;
+}
+
+// ── SECTION DETECT ─────────────────────────────────────────────────
+const SECTIONS = [
+  { re: /general\s*aptitude|\bGA\b/i,   name: "General Aptitude" },
+  { re: /aptitude/i,                     name: "Aptitude" },
+  { re: /reasoning/i,                    name: "Reasoning" },
+  { re: /english/i,                      name: "English" },
+  { re: /technical/i,                    name: "Technical" },
+  { re: /computer\s*science|\bCS\b/i,    name: "CS" },
+  { re: /mathematics/i,                  name: "Maths" },
+  { re: /verbal/i,                       name: "English" },
+  { re: /quantitative/i,                 name: "Aptitude" },
+];
+function detectSection(line) {
+  for (const { re, name } of SECTIONS) {
+    if (re.test(line)) return name;
+  }
+  return null;
+}
+
+// ── SKIP LINES ─────────────────────────────────────────────────────
+const SKIP = [
+  /^source:/i, /^■+\s*page/i, /^mm\s*page/i, /^nn\s*page/i,
+  /^graduate aptitude test/i, /^organizing institute/i,
+  /^question paper name/i, /^subject name/i,
+  /^duration/i, /^session/i, /^total marks/i,
+  /^answer key/i, /^GATE CBT/i, /^instructions/i,
+  /^IIT\s/i, /^Indian Institute/i,
+];
+
+// ── MAIN HANDLER ───────────────────────────────────────────────────
+exports.uploadPDFs = async (req, res) => {
+  let pyqPath = null, ansPath = null, test = null;
+
+  try {
     if (!req.files?.["pyq"] || !req.files?.["answerKey"]) {
       return res.status(400).json({ message: "Both PYQ and Answer Key PDFs required" });
     }
 
-    const pyqBuffer     = req.files["pyq"][0].buffer;
-    const answerBuffer  = req.files["answerKey"][0].buffer;
-    const testName      = req.body.testName || `Test ${new Date().toLocaleDateString()}`;
-    const testYear      = parseInt(req.body.year) || new Date().getFullYear();
-    const totalStudents = parseInt(req.body.totalStudents) || 1000;
+    pyqPath = req.files["pyq"][0].path;
+    ansPath = req.files["answerKey"][0].path;
+    const testName = req.body.testName || `Test ${new Date().toLocaleDateString()}`;
+    const testYear = parseInt(req.body.year) || new Date().getFullYear();
 
-    console.log("Extracting text from PDFs...");
-    const pyqText    = (await pdfParseBuffer(pyqBuffer)).text;
-    const answerText = (await pdfParseBuffer(answerBuffer)).text;
+    // Extract text
+    const [pyqText, ansText] = await Promise.all([
+      extractText(pyqPath),
+      extractText(ansPath),
+    ]);
 
-    console.log("Sending to Groq AI for parsing...");
-    const parsedQuestions = await parseWithGroq(pyqText, answerText);
-    console.log(`Groq parsed: ${parsedQuestions.length} questions`);
+    const pyqLines = pyqText.split("\n").map(l => l.trim()).filter(l => l.length > 1);
+    const ansLines = ansText.split("\n").map(l => l.trim()).filter(l => l.length > 1);
 
-    const test = new Test({ name: testName, year: testYear, uploadedBy: "admin", totalStudents });
+    // Parse answer key
+    const answerMap = parseAnswerMap(ansLines);
+    console.log(`Answer map keys: ${Object.keys(answerMap).length}`, Object.keys(answerMap).slice(0, 10));
+
+    // Create test
+    test = new Test({ name: testName, year: testYear, uploadedBy: "admin" });
     await test.save();
 
-    // Attach testId and year to each question
-    const finalQuestions = parsedQuestions
-      .filter(q => q.question && q.question.trim().length > 3 && q.correctAnswer)
-      .map(q => ({
-        ...q,
-        testId: test._id,
-        year: testYear,
-        subject: q.section || "General",
-        topic: q.section || "General",
-        options: q.options || [],
-        correctAnswer: String(q.correctAnswer),
-      }));
+    const questions = [];
+    let cur = null;
+    let section = "General";
 
-    console.log(`Final questions to save: ${finalQuestions.length}`);
+    for (let i = 0; i < pyqLines.length; i++) {
+      const line = pyqLines[i];
 
-    if (finalQuestions.length === 0) {
-      await Test.findByIdAndDelete(test._id);
-      return res.status(400).json({ message: "No questions parsed. Check PDF content." });
+      if (SKIP.some(p => p.test(line))) continue;
+
+      // Section detection
+      const sec = detectSection(line);
+      if (sec && !line.match(/^Question\s+Number/i) && !line.match(/^\([A-D]\)/i)) {
+        section = sec;
+        if (cur) cur.section = cur.subject = sec;
+        continue;
+      }
+
+      // ── GATE FORMAT: "Question Number : 1 Correct: 1 Wrong: -0.33" ──
+      const gateQ = line.match(/Question\s+Number\s*:\s*(\d+)\s+Correct\s*:\s*([\d.]+)\s+Wrong\s*:\s*([-\d.]+)/i);
+      if (gateQ) {
+        if (cur) questions.push(cur);
+        const qno   = parseInt(gateQ[1]);
+        const marks = parseFloat(gateQ[2]);
+        const neg   = Math.abs(parseFloat(gateQ[3]));
+        const info  = answerMap[String(qno)] || {};
+
+        cur = {
+          testId: test._id, questionNumber: qno,
+          question: "", options: [], correctAnswer: "",
+          section, subject: section, topic: "General",
+          type:          info.type || (neg === 0 ? "NAT" : "MCQ"),
+          marks:         info.marks || marks,
+          negativeMarks: info.type === "NAT" ? 0 : (info.negativeMarks ?? neg),
+          year: testYear,
+        };
+        continue;
+      }
+
+      // ── Q FORMAT: "Q1. question text" ────────────────────────────
+      const qfmt = line.match(/^Q(\d+)\.\s*(.*)/i);
+      if (qfmt) {
+        if (cur) questions.push(cur);
+        const qno  = parseInt(qfmt[1]);
+        const rest = qfmt[2].trim();
+        const info = answerMap[String(qno)] || {};
+        const meta = rest.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Mark/i);
+
+        cur = {
+          testId: test._id, questionNumber: qno,
+          question: meta ? "" : rest, options: [], correctAnswer: "",
+          section, subject: section, topic: "General",
+          type:          info.type || (meta ? meta[1].toUpperCase() : "MCQ"),
+          marks:         info.marks || (meta ? parseInt(meta[2]) : 1),
+          negativeMarks: info.negativeMarks ?? 0.33,
+          year: testYear,
+        };
+        continue;
+      }
+
+      if (!cur) continue;
+
+      // Meta: "[MCQ | 1 Mark ...]"
+      const meta = line.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Mark/i);
+      if (meta) {
+        cur.type  = meta[1].toUpperCase();
+        cur.marks = parseInt(meta[2]);
+        cur.negativeMarks = /No Negative/i.test(line) ? 0 : cur.marks === 2 ? 0.66 : 0.33;
+        if (cur.type === "NAT") cur.negativeMarks = 0;
+        continue;
+      }
+
+      // Options: "(A) text (B) text (C) text (D) text" all on one line
+      const allOpts = line.match(/\(A\)\s*.+\(B\)\s*.+/i);
+      if (allOpts) {
+        const parts = line.split(/(?=\([A-D]\))/i);
+        for (const p of parts) {
+          const m = p.match(/^\(([A-D])\)\s*(.+)/i);
+          if (m) {
+            const txt = m[2].trim().replace(/\([A-D]\).*$/, "").trim();
+            if (txt) cur.options.push(txt);
+          }
+        }
+        continue;
+      }
+
+      // Single option: "(A) text"
+      const singleOpt = line.match(/^\(([A-D])\)\s*(.+)/i);
+      if (singleOpt) {
+        cur.options.push(singleOpt[2].trim());
+        continue;
+      }
+
+      // Question text accumulation
+      if (!SKIP.some(p => p.test(line)) && line.length > 2) {
+        if (!cur.question) {
+          cur.question = line;
+        } else if (cur.options.length === 0 && cur.question.length < 500) {
+          cur.question += " " + line;
+        }
+      }
     }
 
-    await Question.insertMany(finalQuestions);
-    await Test.findByIdAndUpdate(test._id, { totalQuestions: finalQuestions.length });
+    if (cur) questions.push(cur);
 
-    res.status(200).json({
-      message: "PDF uploaded successfully ✅",
-      testId: test._id,
-      testName: test.name,
-      totalQuestions: finalQuestions.length,
-      mcqQuestions: finalQuestions.filter(q => q.type === "MCQ").length,
-      natQuestions: finalQuestions.filter(q => q.type === "NAT").length,
-      totalPossibleMarks: finalQuestions.reduce((s, q) => s + (q.marks || 1), 0),
-      sections: [...new Set(finalQuestions.map(q => q.section))],
+    // ── Assign correct answers ──────────────────────────────────────
+    for (const q of questions) {
+      const info = answerMap[String(q.questionNumber)];
+      if (!info) continue;
+      q.type          = info.type;
+      q.marks         = info.marks;
+      q.negativeMarks = info.negativeMarks;
+
+      if (q.type === "NAT") {
+        q.correctAnswer = String(info.answer);
+        q.negativeMarks = 0;
+      } else {
+        const idx = info.answer.charCodeAt(0) - 65; // A=0 B=1 C=2 D=3
+        q.correctAnswer = q.options[idx] ?? info.answer;
+      }
+    }
+
+    // ── Filter valid questions ──────────────────────────────────────
+    const final = questions.filter(q => {
+      if (!q.question?.trim() || q.question.trim().length < 5) return false;
+      if (q.type === "NAT") return !!q.correctAnswer;
+      return q.options.length >= 2 && !!q.correctAnswer;
     });
 
-  } catch (error) {
-    console.error("PDF PARSE ERROR:", error);
-    res.status(500).json({ message: "PDF parsing failed", error: error.message });
+    if (final.length === 0) {
+      await Test.findByIdAndDelete(test._id);
+      cleanup(pyqPath, ansPath);
+      return res.status(422).json({
+        message: "No valid questions parsed.",
+        hint: "PDF format must have 'Question Number : N' or 'QN.' format.",
+        debug: {
+          sampleLines:  pyqLines.slice(0, 20),
+          answerMapLen: Object.keys(answerMap).length,
+          answerSample: Object.entries(answerMap).slice(0, 5),
+          totalParsed:  questions.length,
+        },
+      });
+    }
+
+    await Question.insertMany(final);
+    await Test.findByIdAndUpdate(test._id, { totalQuestions: final.length });
+    cleanup(pyqPath, ansPath);
+
+    return res.status(200).json({
+      message:        "✅ Test uploaded successfully!",
+      testId:         test._id,
+      testName:       test.name,
+      totalQuestions: final.length,
+      mcqQuestions:   final.filter(q => q.type === "MCQ").length,
+      natQuestions:   final.filter(q => q.type === "NAT").length,
+      totalMarks:     final.reduce((s, q) => s + q.marks, 0),
+      sections:       [...new Set(final.map(q => q.section))],
+    });
+
+  } catch (err) {
+    console.error("uploadPDFs error:", err);
+    if (test?._id) await Test.findByIdAndDelete(test._id).catch(() => {});
+    cleanup(pyqPath, ansPath);
+    return res.status(500).json({ message: "Upload failed", error: err.message });
   }
 };
 
-// ══════════════════════════════════════════════════════════════════
-// OTHER ROUTES
-// ══════════════════════════════════════════════════════════════════
-exports.getTests = async (req, res) => {
-  try {
-    const tests = await Test.find().sort({ createdAt: -1 });
-    res.status(200).json(tests);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+function cleanup(...paths) {
+  for (const p of paths) {
+    try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
   }
-};
-
-exports.getQuestionsByTest = async (req, res) => {
-  try {
-    const questions = await Question.find({ testId: req.params.testId });
-    res.status(200).json(questions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-exports.getAllQuestions = async (req, res) => {
-  try {
-    const latest = await Test.findOne().sort({ createdAt: -1 });
-    if (!latest) return res.status(404).json({ message: "No tests found" });
-    const questions = await Question.find({ testId: latest._id });
-    res.status(200).json(questions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+}
