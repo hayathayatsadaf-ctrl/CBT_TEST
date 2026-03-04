@@ -4,7 +4,8 @@ import Timer from "../test/Timer";
 const TopBar = ({ section, changeSection, user }) => {
   const sections = ["Aptitude", "Reasoning", "English", "Technical"];
 
-  const attemptNumber = user?.attempts !== undefined ? user.attempts + 1 : 1;
+  // ✅ Cap at 2 max
+  const attemptNumber = Math.min((user?.attempts ?? 0) + 1, 2);
 
   const initials = user?.name
     ? user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
@@ -12,7 +13,8 @@ const TopBar = ({ section, changeSection, user }) => {
 
   return (
     <div className="top-bar">
-      {/* Section Buttons — left side */}
+
+      {/* LEFT — Section Buttons */}
       <div className="top-bar-sections">
         {sections.map((sec) => (
           <button
@@ -25,7 +27,10 @@ const TopBar = ({ section, changeSection, user }) => {
         ))}
       </div>
 
-      {/* User Profile — pushed to right by margin-left: auto */}
+      {/* CENTER — Timer (flex:1 + text-align:center in CSS) */}
+      <Timer />
+
+      {/* RIGHT — User Profile */}
       <div className="user-profile">
         <div className="user-avatar">
           {user?.profileImage
@@ -40,8 +45,6 @@ const TopBar = ({ section, changeSection, user }) => {
         </div>
       </div>
 
-      {/* ✅ Timer — far right end */}
-      <Timer />
     </div>
   );
 };

@@ -25,6 +25,7 @@
   width: 100%;
 }
 
+/* ── SECTION BUTTONS — LEFT ─────────────────────────────────────────────────── */
 .top-bar-sections {
   display: flex;
   flex-direction: row;
@@ -53,10 +54,10 @@
   border-color: #0ea5e9;
 }
 
-/* ── TIMER — far right */
+/* ── TIMER — CENTER ✅ ──────────────────────────────────────────────────────── */
 .timer {
-  margin-left: 0; /* ✅ pushes profile+timer to the right */
-  text-align: center;
+  flex: 1;                  /* ✅ takes all middle space */
+  text-align: center;       /* ✅ centers text inside */
   font-size: 14px;
   font-weight: bold;
   color: #0369a1;
@@ -66,12 +67,11 @@
   border: 1.5px solid #7dd3fc;
   letter-spacing: 1px;
   white-space: nowrap;
-  flex-shrink: 0;
+  margin: 0 8px;            /* ✅ small breathing room */
 }
 
-/* ── USER PROFILE */
+/* ── USER PROFILE — RIGHT ✅ ────────────────────────────────────────────────── */
 .user-profile {
-  margin-left: auto; /* ✅ pushes profile+timer to far right */
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -81,14 +81,13 @@
   border-radius: 8px;
   border: 1.5px solid #7dd3fc;
   flex-shrink: 0;
-  
+  /* NO margin-left:auto — timer with flex:1 pushes this naturally to right */
 }
 
-/* ✅ Avatar — square with rounded corners, better image fit */
 .user-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px; /* ✅ rounded square instead of circle */
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
   background-color: #0ea5e9;
   display: flex;
   align-items: center;
@@ -101,7 +100,7 @@
 .avatar-img {
   width: 100%;
   height: 100%;
-  object-fit: cover; /* ✅ fills the box cleanly */
+  object-fit: cover;
   border-radius: 6px;
 }
 
@@ -337,3 +336,145 @@
 .legend-dot.answered   { background-color: #86efac; }
 .legend-dot.active     { background-color: #0ea5e9; }
 .legend-dot.unanswered { background-color: #ffffff; border: 1.5px solid #7dd3fc; }
+
+
+/* ════════════════════════════════════════════════════════════════════════════ */
+/* ── MOBILE RESPONSIVE (max-width: 768px) ───────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* TopBar stacks sections on top, profile+timer below */
+  .top-bar {
+    flex-wrap: wrap;
+    min-height: auto;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .top-bar-sections {
+    flex: 1 1 100%;           /* full width on mobile */
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .top-bar-sections button {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .timer {
+    flex: none;
+    font-size: 12px;
+    padding: 3px 10px;
+    margin: 0;
+    order: 3;
+  }
+
+  .user-profile {
+    order: 2;
+    padding: 4px 8px;
+  }
+
+  .user-name { font-size: 11px; }
+  .user-roll, .user-attempt { font-size: 9px; }
+
+  .user-avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  /* Main content stacks vertically */
+  .main-content {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  /* Left panel full width */
+  .left-panel {
+    padding: 14px 16px;
+    border-right: none;
+    border-bottom: 1px solid #e0f2fe;
+    overflow-y: visible;
+  }
+
+  .left-panel p {
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+
+  .options label {
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+
+  /* Right panel full width at bottom */
+  .right-panel {
+    width: 100%;
+    height: auto;
+    padding: 10px 12px;
+    border-left: none;
+    border-top: 1px solid #bae6fd;
+    overflow-y: visible;
+  }
+
+  /* Palette grid — more columns on mobile */
+  .question-grid {
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+  }
+
+  .question-grid button {
+    padding: 4px 2px;
+    font-size: 10px;
+  }
+
+  .submit-btn {
+    margin-top: 10px;
+    padding: 10px;
+  }
+
+  /* Bottom nav */
+  .bottom-nav {
+    padding: 6px 12px;
+  }
+
+  .bottom-nav button {
+    padding: 5px 14px;
+    font-size: 11px;
+  }
+}
+
+/* ── SMALL MOBILE (max-width: 480px) ────────────────────────────────────── */
+@media (max-width: 480px) {
+
+  .top-bar-sections button {
+    padding: 3px 6px;
+    font-size: 9px;
+  }
+
+  .left-panel {
+    padding: 10px 12px;
+  }
+
+  .left-panel h3 {
+    font-size: 13px;
+  }
+
+  .left-panel p {
+    font-size: 13px;
+  }
+
+  .options label {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .question-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .bottom-nav button {
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+}

@@ -25,21 +25,11 @@ function pdfParse(filePath) {
 }
 
 // ── ANSWER KEY PARSER ────────────────────────────────────────────
-// Supports two formats:
-//
-// FORMAT 1 (our generated PDF — preferred):
-//   "Q1. Answer: B [MCQ | 1 Mark | Negative: -0.33] Subject: General Aptitude"
-//   "Q3. Answer: 9 [NAT | 1 Mark | Negative: Nil] Subject: Operating Systems"
-//
-// FORMAT 2 (simple plain text):
-//   "1. B"   "1) B"   "Q1. B"   "1. Ans: B"
-//   "3. 9"   "7. 236"  (NAT numerical)
-//
 function parseAnswerMap(ansLines) {
   const answerMap = {};
 
   for (let line of ansLines) {
-    // ── FORMAT 1: "Q1. Answer: B [MCQ | 1 Mark ...]" ──
+    // FORMAT 1: "Q1. Answer: B [MCQ | 1 Mark ...]"
     const fmt1 = line.match(
       /^Q(\d+)\.\s+Answer:\s+([A-D]|-?\d+(?:\.\d+)?)\s+\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i
     );
@@ -57,13 +47,13 @@ function parseAnswerMap(ansLines) {
       continue;
     }
 
-    // ── FORMAT 2: detect marks hint ──
+    // FORMAT 2: marks hint
     let marks = 1;
     const marksHint = line.match(/\b([12])\s*(?:marks?|M)\b/i)
                    || line.match(/[(\[]\s*([12])\s*[)\]]/);
     if (marksHint) marks = parseInt(marksHint[1]);
 
-    // FORMAT 2 MCQ: "1. B"  "1) B"  "Q1. B"
+    // FORMAT 2 MCQ: "1. B" "Q1. B"
     const mcqMatch = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?\(?([A-D])\)?/i)
                   || line.match(/^Q?(\d+)\s+([A-D])$/i);
     if (mcqMatch) {
@@ -76,7 +66,7 @@ function parseAnswerMap(ansLines) {
       continue;
     }
 
-    // FORMAT 2 NAT: "3. 9"  "7. 236"
+    // FORMAT 2 NAT: "3. 9" "7. 236"
     const natMatch = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?(-?\d+(?:\.\d+)?)$/i);
     if (natMatch) {
       answerMap[natMatch[1]] = {
@@ -90,6 +80,46 @@ function parseAnswerMap(ansLines) {
 
   return answerMap;
 }
+
+// ── KNOWN SECTION NAMES ──────────────────────────────────────────
+// ✅ Detect section headings anywhere in the PDF
+const SECTION_PATTERNS = [
+  { pattern: /aptitude/i,          name: "Aptitude" },
+  { pattern: /reasoning/i,         name: "Reasoning" },
+  { pattern: /english/i,           name: "English" },
+  { pattern: /technical/i,         name: "Technical" },
+  { pattern: /general\s*ability/i, name: "Aptitude" },
+  { pattern: /verbal/i,            name: "English" },
+  { pattern: /quantitative/i,      name: "Aptitude" },
+  { pattern: /computer\s*science/i,name: "Technical" },
+  { pattern: /mathematics/i,       name: "Technical" },
+  { pattern: /engineering/i,       name: "Technical" },
+];
+
+function detectSection(line) {
+  for (const { pattern, name } of SECTION_PATTERNS) {
+    if (pattern.test(line)) return name;
+  }
+  return null;
+}
+
+// ── LINES TO SKIP ────────────────────────────────────────────────
+const skipPatterns = [
+  /^GATE CBT/i,
+  /^Total Questions/i,
+  /^Total Marks/i,
+  /^Time:/i,
+  /^INSTRUCTIONS/i,
+  /^\d+\.\s+(This paper|MCQ 1|NAT |Unanswered|For MCQ)/i,
+  /^1-Mark MCQ/i,
+  /^2-Mark MCQ/i,
+  /^NAT \(any\)/i,
+  /^Not Attempted/i,
+  /^—\s*END/i,
+  /^All the best/i,
+  /^Answer:\s*_+/i,
+  /^\(Enter integer\)/i,
+];
 
 // ── MAIN UPLOAD HANDLER ──────────────────────────────────────────
 exports.uploadPDFs = async (req, res) => {
@@ -119,28 +149,18 @@ exports.uploadPDFs = async (req, res) => {
     let currentQuestion  = null;
     let currentSection   = "General";
 
-    // Lines to skip
-    const skipPatterns = [
-      /^GATE CBT/i,
-      /^Total Questions/i,
-      /^Total Marks/i,
-      /^Time:/i,
-      /^INSTRUCTIONS/i,
-      /^\d+\.\s+(This paper|MCQ 1|NAT |Unanswered|For MCQ)/i,
-      /^1-Mark MCQ/i,
-      /^2-Mark MCQ/i,
-      /^NAT \(any\)/i,
-      /^Not Attempted/i,
-      /^—\s*END/i,
-      /^All the best/i,
-      /^Answer:\s*_+/i,
-      /^\(Enter integer\)/i,
-    ];
-
     for (let line of pyqLines) {
       if (skipPatterns.some(p => p.test(line))) continue;
 
-      // ── Question line: "Q1. [MCQ | 1 Mark | Negative: -0.33]" ──
+      // ✅ Detect section ANYWHERE — even mid-question-block
+      const detectedSection = detectSection(line);
+      if (detectedSection && !line.match(/^Q\d+\./i) && !line.match(/^\([A-D]\)/i)) {
+        currentSection = detectedSection;
+        if (currentQuestion) currentQuestion.section = currentSection;
+        continue;
+      }
+
+      // ── Question line: "Q1. ..." ──
       const qMatch = line.match(/^Q(\d+)\.\s*(.*)/i);
       if (qMatch) {
         if (currentQuestion) questionsArray.push(currentQuestion);
@@ -149,7 +169,6 @@ exports.uploadPDFs = async (req, res) => {
         const answerInfo     = answerMap[String(questionNumber)] || {};
         const restOfLine     = qMatch[2].trim();
 
-        // Check if meta is inline: "Q1. [MCQ | 1 Mark...]"
         const metaInline = restOfLine.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i);
 
         let type          = answerInfo.type          || "MCQ";
@@ -162,13 +181,19 @@ exports.uploadPDFs = async (req, res) => {
           negativeMarks = /No Negative/i.test(restOfLine) ? 0 : marks === 2 ? 0.66 : 0.33;
         }
 
+        // ✅ If answer key says NAT, override
+        if (answerInfo.type === "NAT") {
+          type          = "NAT";
+          negativeMarks = 0;
+        }
+
         currentQuestion = {
           testId: test._id,
           questionNumber,
-          question: "",
+          question: metaInline ? "" : restOfLine, // if meta inline, question text comes next
           options: [],
           correctAnswer: "",
-          section: currentSection,
+          section: currentSection,  // ✅ uses latest detected section
           subject: currentSection,
           topic: "General",
           type,
@@ -180,7 +205,7 @@ exports.uploadPDFs = async (req, res) => {
       }
 
       if (currentQuestion) {
-        // ── Meta line: "[MCQ | 1 Mark | Negative: -0.33]" on its own line ──
+        // ── Meta line: "[MCQ | 1 Mark ...]" on its own ──
         const metaMatch = line.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i);
         if (metaMatch) {
           currentQuestion.type          = metaMatch[1].toUpperCase();
@@ -197,23 +222,13 @@ exports.uploadPDFs = async (req, res) => {
           continue;
         }
 
-        // ── Question text (single or multi-line) ──
+        // ── Question text ──
         if (!skipPatterns.some(p => p.test(line)) && line.length > 3) {
           if (currentQuestion.question === "") {
             currentQuestion.question = line;
           } else if (currentQuestion.options.length === 0) {
             currentQuestion.question += " " + line;
           }
-        }
-      } else {
-        // ── Section/Subject heading ──
-        if (
-          line.length > 2 && line.length < 80 &&
-          !line.match(/^\d/) &&
-          !line.match(/^\(/) &&
-          !line.match(/^\[/)
-        ) {
-          currentSection = line.trim();
         }
       }
     }
@@ -229,7 +244,7 @@ exports.uploadPDFs = async (req, res) => {
       if (q.type === "NAT") {
         q.correctAnswer = String(ansInfo.answer);
       } else {
-        const idx = ansInfo.answer.charCodeAt(0) - 65; // A=0,B=1,C=2,D=3
+        const idx = ansInfo.answer.charCodeAt(0) - 65;
         if (q.options[idx] !== undefined) {
           q.correctAnswer = q.options[idx];
         }
