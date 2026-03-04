@@ -38,8 +38,9 @@ function generateRollNumber() {
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    const normalizedEmail = email.toLowerCase().trim(); // ✅ fix case/space issues
 
-    const existUser = await User.findOne({ email });
+    const existUser = await User.findOne({ email: normalizedEmail });
     if (existUser) return res.status(400).json({ message: "User already exists" });
 
     const hashPassword = await bcrypt.hash(password, 10);
@@ -52,7 +53,7 @@ router.post("/register", async (req, res) => {
       if (!existing) isUnique = true;
     }
 
-    const user = new User({ name, email, password: hashPassword, rollNumber });
+    const user = new User({ name, email: normalizedEmail, password: hashPassword, rollNumber });
     await user.save();
 
     res.status(201).json({
@@ -68,11 +69,12 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = email.toLowerCase().trim(); // ✅ fix case/space issues
 
-    if (!email || !password)
+    if (!normalizedEmail || !password)
       return res.status(400).json({ message: "Email and password required" });
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.status(400).json({ message: "User not found" });
 
     const isMatch = await bcrypt.compare(password, user.password);
