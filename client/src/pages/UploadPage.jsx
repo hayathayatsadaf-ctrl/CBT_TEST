@@ -7,8 +7,8 @@ const UploadPage = () => {
   const [answerFile, setAnswerFile] = useState(null);
   const [profileImage, setProfileImage] = useState(null);
   const [profilePreview, setProfilePreview] = useState(null);
-  const [totalStudents, setTotalStudents] = useState(1000);  // ← FIXED
-  const [setCode, setSetCode] = useState("A");               // ← FIXED
+  const [totalStudents, setTotalStudents] = useState(1000);
+  const [paperSet, setPaperSet] = useState("A");
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -57,7 +57,7 @@ const UploadPage = () => {
       formData.append("pyq", pyqFile);
       formData.append("answerKey", answerFile);
       formData.append("totalStudents", totalStudents);
-      formData.append("setCode", setCode);
+      formData.append("setCode", paperSet);
       const res = await API.post("/pdf/upload", formData);
       setResult(res.data);
     } catch (err) {
@@ -100,7 +100,7 @@ const UploadPage = () => {
         <h2 style={styles.title}>📄 Upload Question Paper</h2>
         <p style={styles.subtitle}>Upload PYQ and Answer Key PDFs to populate the test</p>
 
-        {/* Total Students Input */}
+        {/* Total Students */}
         <div style={styles.studentsBox}>
           <label style={styles.label}>👥 Total Students Appearing in Exam</label>
           <input
@@ -116,8 +116,8 @@ const UploadPage = () => {
           </p>
           <p style={{ marginTop: "10px", fontWeight: "bold" }}>Question Paper Set</p>
           <select
-            value={setCode}
-            onChange={e => setSetCode(e.target.value)}
+            value={paperSet}
+            onChange={e => setPaperSet(e.target.value)}
             style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "16px", width: "100%" }}
           >
             <option value="A">Set A</option>
