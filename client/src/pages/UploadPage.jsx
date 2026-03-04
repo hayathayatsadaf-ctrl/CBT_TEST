@@ -7,6 +7,8 @@ const UploadPage = () => {
   const [answerFile, setAnswerFile] = useState(null);
   const [profileImage, setProfileImage] = useState(null);
   const [profilePreview, setProfilePreview] = useState(null);
+  const [totalStudents, setTotalStudents] = useState(1000);  // ← FIXED
+  const [setCode, setSetCode] = useState("A");               // ← FIXED
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -29,9 +31,7 @@ const UploadPage = () => {
     try {
       const formData = new FormData();
       formData.append("profileImage", profileImage);
-      await API.post("/auth/upload-profile", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await API.post("/auth/upload-profile", formData);
       setProfileSuccess(true);
     } catch (err) {
       alert(err.response?.data?.message || "Profile image upload failed.");
@@ -56,11 +56,9 @@ const UploadPage = () => {
       const formData = new FormData();
       formData.append("pyq", pyqFile);
       formData.append("answerKey", answerFile);
-      formData.append("totalStudents", 1000);
-      formData.append("setCode", setCode); // ✅ fixed at 1000
-      const res = await API.post("/pdf/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      formData.append("totalStudents", totalStudents);
+      formData.append("setCode", setCode);
+      const res = await API.post("/pdf/upload", formData);
       setResult(res.data);
     } catch (err) {
       setError(err.response?.data?.message || "Upload failed. Please try again.");
@@ -102,7 +100,7 @@ const UploadPage = () => {
         <h2 style={styles.title}>📄 Upload Question Paper</h2>
         <p style={styles.subtitle}>Upload PYQ and Answer Key PDFs to populate the test</p>
 
-        {/* ✅ Total Students Input */}
+        {/* Total Students Input */}
         <div style={styles.studentsBox}>
           <label style={styles.label}>👥 Total Students Appearing in Exam</label>
           <input
@@ -127,9 +125,6 @@ const UploadPage = () => {
             <option value="C">Set C</option>
             <option value="D">Set D</option>
           </select>
-          <p style={{display:'none'}}>
-          </p>
-
         </div>
 
         {/* PYQ Upload */}
@@ -152,6 +147,16 @@ const UploadPage = () => {
           style={loading ? { ...styles.btn, ...styles.btnDisabled } : styles.btn}>
           {loading ? "⏳ Uploading & Parsing..." : "🚀 Upload PDFs"}
         </button>
+
+        {/* Excel Upload Link */}
+        <div style={styles.excelBox}>
+          <p style={{ margin: 0, fontSize: "14px", color: "#555" }}>
+            📊 Ya Excel file upload karo →{" "}
+            <a href="/upload-excel" style={{ color: "#1a3a8f", fontWeight: "bold" }}>
+              Excel Upload
+            </a>
+          </p>
+        </div>
 
         {result && (
           <div style={styles.success}>
@@ -191,8 +196,6 @@ const styles = {
   studentsBox: { backgroundColor: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "10px", padding: "18px", marginBottom: "20px" },
   numberInput: { width: "100%", padding: "10px 14px", fontSize: "18px", fontWeight: "700", border: "2px solid #4ade80", borderRadius: "8px", textAlign: "center", color: "#166534", outline: "none", boxSizing: "border-box", marginTop: "8px" },
   studentsHint: { fontSize: "13px", color: "#166534", marginTop: "8px", marginBottom: "10px" },
-  rankPreview: { display: "flex", flexDirection: "column", gap: "4px" },
-  rankItem: { fontSize: "12px", color: "#374151", backgroundColor: "#fff", borderRadius: "6px", padding: "5px 10px", border: "1px solid #d1fae5" },
   title: { fontSize: "24px", fontWeight: "bold", marginBottom: "8px", color: "#1a1a1a" },
   subtitle: { color: "#666", marginBottom: "30px", fontSize: "14px" },
   uploadBox: { backgroundColor: "#f9f9f9", border: "2px dashed #ddd", borderRadius: "8px", padding: "20px", marginBottom: "20px" },
@@ -201,6 +204,7 @@ const styles = {
   fileName: { marginTop: "8px", fontSize: "13px", color: "#4caf50", fontWeight: "500" },
   btn: { width: "100%", padding: "14px", backgroundColor: "#ff8c00", color: "#fff", border: "none", borderRadius: "8px", fontSize: "16px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" },
   btnDisabled: { backgroundColor: "#ccc", cursor: "not-allowed" },
+  excelBox: { marginTop: "12px", padding: "12px", backgroundColor: "#f0f4ff", borderRadius: "8px", textAlign: "center" },
   success: { marginTop: "20px", backgroundColor: "#e8f5e9", border: "1px solid #4caf50", borderRadius: "8px", padding: "20px", textAlign: "center", color: "#2e7d32" },
   goBtn: { marginTop: "12px", padding: "10px 24px", backgroundColor: "#4caf50", color: "#fff", border: "none", borderRadius: "6px", fontSize: "15px", cursor: "pointer", fontWeight: "bold" },
   errorBox: { marginTop: "20px", backgroundColor: "#ffebee", border: "1px solid #f44336", borderRadius: "8px", padding: "15px", color: "#c62828", textAlign: "center" },
