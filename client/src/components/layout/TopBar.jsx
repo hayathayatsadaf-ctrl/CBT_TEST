@@ -1,15 +1,28 @@
 import React from "react";
 import Timer from "../test/Timer";
 
-const TopBar = ({ section, changeSection, user }) => {
-  const sections = ["Aptitude", "Reasoning", "English", "Technical"];
+const getImageUrl = (profileImage) => {
+  if (!profileImage) return null;
+  // ✅ Replace localhost with production backend URL
+  return profileImage.replace(
+    "http://localhost:5000",
+    process.env.REACT_APP_API_URL?.replace("/api", "") || "http://localhost:5000"
+  );
+};
 
-  // ✅ Cap at 2 max
+const TopBar = ({ section, changeSection, user, sections: dynamicSections }) => {
+  // ✅ Use dynamic sections from DB, fallback to default
+  const sections = dynamicSections?.length > 0
+    ? dynamicSections
+    : ["Aptitude", "Reasoning", "English", "Technical"];
+
   const attemptNumber = Math.min((user?.attempts ?? 0) + 1, 2);
 
   const initials = user?.name
     ? user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
+
+  const imageUrl = getImageUrl(user?.profileImage);
 
   return (
     <div className="top-bar">
@@ -27,14 +40,12 @@ const TopBar = ({ section, changeSection, user }) => {
         ))}
       </div>
 
-      {/* CENTER — Timer (flex:1 + text-align:center in CSS) */}
-      <Timer />
-
       {/* RIGHT — User Profile */}
       <div className="user-profile">
         <div className="user-avatar">
-          {user?.profileImage
-            ? <img src={user.profileImage} alt="profile" className="avatar-img" />
+          {imageUrl
+            ? <img src={imageUrl} alt="profile" className="avatar-img"
+                onError={(e) => { e.target.style.display = "none"; }} />
             : <span className="avatar-initials">{initials}</span>
           }
         </div>
@@ -44,6 +55,9 @@ const TopBar = ({ section, changeSection, user }) => {
           <span className="user-attempt">Attempt: {attemptNumber}/2</span>
         </div>
       </div>
+
+      {/* FAR RIGHT — Timer */}
+      <Timer />
 
     </div>
   );

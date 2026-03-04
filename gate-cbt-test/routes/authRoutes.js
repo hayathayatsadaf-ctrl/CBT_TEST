@@ -21,21 +21,20 @@ const profileStorage = multer.diskStorage({
 });
 const profileUpload = multer({
   storage: profileStorage,
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files allowed"));
   },
 });
 
-// ✅ Auto-generate roll number
 function generateRollNumber() {
   const year = new Date().getFullYear();
   const random = Math.floor(1000 + Math.random() * 9000);
   return `GATE${year}${random}`;
 }
 
-// ── REGISTER ─────────────────────────────────────────────────────────────────
+// ── REGISTER ──────────────────────────────────────────────────────────────────
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -93,7 +92,7 @@ router.post("/login", async (req, res) => {
         name: user.name,
         email: user.email,
         rollNumber: user.rollNumber,
-        profileImage: user.profileImage, // ✅ included
+        profileImage: user.profileImage,
       },
     });
   } catch (error) {
@@ -116,7 +115,10 @@ router.post("/upload-profile", auth, profileUpload.single("profileImage"), async
   try {
     if (!req.file) return res.status(400).json({ message: "No image uploaded" });
 
-    const imageUrl = `http://localhost:5000/uploads/profiles/${req.file.filename}`;
+    // ✅ Use BASE_URL env variable — works both locally and on Render
+    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
+    const imageUrl = `${baseUrl}/uploads/profiles/${req.file.filename}`;
+
     await User.findByIdAndUpdate(req.user.id, { profileImage: imageUrl });
 
     res.status(200).json({ message: "Profile image updated", profileImage: imageUrl });
