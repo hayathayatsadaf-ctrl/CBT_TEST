@@ -39,11 +39,6 @@ const ResultPage = () => {
     ? "You have used both attempts for this test."
     : null;
 
-  // ✅ Show marks as: obtained / totalPossible (e.g. "14 / 65")
-  const marksDisplay = result.totalPossibleMarks
-    ? `${result.totalMarks} / ${result.totalPossibleMarks}`
-    : result.totalMarks;
-
   // ✅ Skipped = total questions - attempted
   const skipped = result.skipped ?? (result.totalQuestions - result.attempted) ?? "—";
 
