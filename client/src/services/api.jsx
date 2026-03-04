@@ -1,14 +1,14 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: "http://localhost:5000/api", // Backend URL
+  baseURL: process.env.REACT_APP_API_URL || "http://localhost:5000/api", // ✅ uses env variable in production
 });
 
 // Attach JWT token automatically
 API.interceptors.request.use((req) => {
   const token = localStorage.getItem("token");
   if (token) {
-    req.headers.Authorization = `Bearer ${token}`; // Bearer prefix mandatory
+    req.headers.Authorization = `Bearer ${token}`;
   }
   return req;
 });
