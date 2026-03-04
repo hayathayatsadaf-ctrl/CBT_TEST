@@ -1,75 +1,80 @@
+const pdfParse = require("pdf-parse");
 const Question = require("../models/Question");
 const Test     = require("../models/Test");
 
-// ✅ Use pdfjs-dist — works on Render without test file issues
 async function extractText(buffer) {
   try {
     const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
     pdfjsLib.GlobalWorkerOptions.workerSrc = false;
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), standardFontDataUrl: null, disableFontFace: true });
     const pdf = await loadingTask.promise;
     let fullText = "";
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      const pageText = content.items.map(item => item.str).join(" ");
-      fullText += pageText + "\n";
+      fullText += content.items.map(item => item.str).join(" ") + "\n";
     }
     return fullText;
   } catch (e) {
-    console.error("PDF extract error:", e.message);
-    // fallback to pdf-parse
+    console.error("pdfjs error:", e.message);
     try {
-      const pdfParse = require("pdf-parse");
       const data = await pdfParse(buffer);
       return data.text || "";
     } catch(e2) {
-      console.error("pdf-parse fallback error:", e2.message);
+      console.error("pdf-parse error:", e2.message);
       return "";
     }
   }
 }
 
 // ── ANSWER KEY PARSER ──────────────────────────────────────────────
-function parseAnswerMap(ansText) {
+function parseAnswerMap(ansText, setCode) {
   const map = {};
   const lines = ansText.split("\n").map(l => l.trim()).filter(l => l);
+  const setIndex = setCode ? "ABCD".indexOf(setCode.toUpperCase()) : 0;
 
   for (let line of lines) {
-    if (/Q\.No|Type|Section|Key|Marks|Answer Key/i.test(line)) continue;
+    if (/Q\.No|Type|Section|Key|Marks|Answer Key|^Paper|^Question|^Code/i.test(line)) continue;
 
-    // GATE table: "1 MCQ GA C 1"
-    const tableMatch = line.match(/^(\d+)\s+(MCQ|NAT)\s+(\w+)\s+(.+?)\s+(\d+)\s*$/i);
-    if (tableMatch) {
-      const qno   = tableMatch[1];
-      const type  = tableMatch[2].toUpperCase();
-      const sec   = tableMatch[3].toUpperCase();
-      const key   = tableMatch[4].trim();
-      const marks = parseInt(tableMatch[5]);
-      let answer  = key;
-      if (type === "MCQ") {
-        const lm = key.match(/[A-D]/i);
-        if (!lm) continue;
-        answer = lm[0].toUpperCase();
-      }
-      map[`${sec}_${qno}`] = { answer, type, marks, section: sec === "GA" ? "General Aptitude" : "CS", negativeMarks: type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33 };
+    // Format 1 old GATE: "CS 1 B C B D"
+    const m1 = line.match(/^(CS|GA)\s+(\d+)\s+([A-D*])\s+([A-D*])\s+([A-D*])\s+([A-D*])\s*$/i);
+    if (m1) {
+      const sec = m1[1].toUpperCase(), qno = m1[2];
+      const answers = [m1[3], m1[4], m1[5], m1[6]];
+      const answer = answers[setIndex] === "*" ? null : answers[setIndex].toUpperCase();
+      if (answer) map[sec+"_"+qno] = { answer, type:"MCQ", marks:1, section: sec==="GA"?"General Aptitude":"CS", negativeMarks:0.33 };
       continue;
     }
 
-    // Simple: "1. C"
-    const simple = line.match(/^Q?(\d+)[.)]\s*([A-D])\s*$/i);
-    if (simple) {
-      const ans = { answer: simple[2].toUpperCase(), type: "MCQ", marks: 1, section: "CS", negativeMarks: 0.33 };
-      map[`CS_${simple[1]}`] = ans;
-      map[`GA_${simple[1]}`] = { ...ans, section: "General Aptitude" };
+    // Format 1b: "CS 3 Marks to All"
+    const m1b = line.match(/^(CS|GA)\s+(\d+)\s+Marks\s+to\s+All/i);
+    if (m1b) {
+      map[m1b[1].toUpperCase()+"_"+m1b[2]] = { answer:"MARKS_TO_ALL", type:"MCQ", marks:1, section: m1b[1]==="GA"?"General Aptitude":"CS", negativeMarks:0 };
+      continue;
+    }
+
+    // Format 2 new GATE 2019+: "1 MCQ GA C 1"
+    const m2 = line.match(/^(\d+)\s+(MCQ|NAT)\s+(\w+)\s+(.+?)\s+(\d+)\s*$/i);
+    if (m2) {
+      const qno=m2[1], type=m2[2].toUpperCase(), sec=m2[3].toUpperCase(), key=m2[4].trim(), marks=parseInt(m2[5]);
+      let answer = key;
+      if (type==="MCQ") { const lm=key.match(/[A-D]/i); if(!lm) continue; answer=lm[0].toUpperCase(); }
+      map[sec+"_"+qno] = { answer, type, marks, section:sec==="GA"?"General Aptitude":"CS", negativeMarks:type==="NAT"?0:marks===2?0.66:0.33 };
+      continue;
+    }
+
+    // Format 3: "1. C"
+    const m3 = line.match(/^Q?(\d+)[.)]\s*([A-D])\s*$/i);
+    if (m3) {
+      const ans = { answer:m3[2].toUpperCase(), type:"MCQ", marks:1, section:"CS", negativeMarks:0.33 };
+      map["CS_"+m3[1]] = ans;
+      map["GA_"+m3[1]] = { ...ans, section:"General Aptitude" };
     }
   }
   return map;
 }
 
-const SKIP = [/^page\s+\d/i, /^\d+\/\d+$/, /^END OF THE QUESTION/i, /^GA$/, /^CS$/];
 
-// ── MAIN HANDLER ───────────────────────────────────────────────────
 exports.uploadPDFs = async (req, res) => {
   let test = null;
   try {
@@ -79,18 +84,19 @@ exports.uploadPDFs = async (req, res) => {
 
     const pyqBuffer     = req.files["pyq"][0].buffer;
     const ansBuffer     = req.files["answerKey"][0].buffer;
-    const testName      = req.body.testName || `GATE Test ${new Date().getFullYear()}`;
+    const testName      = req.body.testName || `GATE Test`;
     const testYear      = parseInt(req.body.year) || new Date().getFullYear();
     const totalStudents = parseInt(req.body.totalStudents) || 1000;
+    const setCode       = req.body.setCode || "A"; // ✅ Which set: A, B, C, D
 
     const [pyqText, ansText] = await Promise.all([extractText(pyqBuffer), extractText(ansBuffer)]);
 
-    console.log("PYQ text sample:", pyqText.slice(0, 300));
-    console.log("ANS text sample:", ansText.slice(0, 300));
+    console.log("PYQ sample:", pyqText.slice(0, 200));
+    console.log("ANS sample:", ansText.slice(0, 300));
 
     const pyqLines  = pyqText.split("\n").map(l => l.trim()).filter(l => l.length > 1);
-    const answerMap = parseAnswerMap(ansText);
-    console.log(`Answer map keys: ${Object.keys(answerMap).length}`);
+    const answerMap = parseAnswerMap(ansText, setCode);
+    console.log(`Answer map total: ${Object.keys(answerMap).length}`);
 
     test = new Test({ name: testName, year: testYear, uploadedBy: "admin", totalStudents });
     await test.save();
@@ -105,9 +111,11 @@ exports.uploadPDFs = async (req, res) => {
 
       if (/GATE 20\d\d General Aptitude/i.test(line)) { section = "General Aptitude"; sectionCode = "GA"; continue; }
       if (/GATE 20\d\d.*Computer Science/i.test(line)) { section = "CS"; sectionCode = "CS"; continue; }
+      if (/^General Aptitude/i.test(line) && line.length < 30) { section = "General Aptitude"; sectionCode = "GA"; continue; }
+      if (/^Q\.\s*1\s*[–-]\s*Q\.\s*5/i.test(line)) { section = "General Aptitude"; sectionCode = "GA"; continue; }
 
-      // Q format: "Q.1" "Q1." "Q.10"
-      const qfmt = line.match(/^Q\.?\s*(\d+)\s*(.*)/i);
+      // Q format: "Q.1" "Q1." "Q. 1"
+      const qfmt = line.match(/^Q\.?\s*(\d+)[\s.)]\s*(.*)/i);
       if (qfmt) {
         if (cur) questions.push(cur);
         const qno  = parseInt(qfmt[1]);
@@ -122,7 +130,7 @@ exports.uploadPDFs = async (req, res) => {
 
       if (!cur) continue;
 
-      // All options on one line
+      // All options on one line "(A) x (B) y (C) z (D) w"
       if (/\(A\)\s*.+\(B\)\s*.+/i.test(line)) {
         const parts = line.split(/(?=\([A-D]\))/i);
         for (const p of parts) {
@@ -132,12 +140,12 @@ exports.uploadPDFs = async (req, res) => {
         continue;
       }
 
-      // Single option
+      // Single option "(A) text"
       const opt = line.match(/^\(([A-D])\)\s*(.+)/i);
       if (opt) { cur.options.push(opt[2].trim()); continue; }
 
       // Question text
-      if (line.length > 2 && !SKIP.some(p => p.test(line))) {
+      if (line.length > 2) {
         if (!cur.question) cur.question = line;
         else if (cur.options.length === 0 && cur.question.length < 600) cur.question += " " + line;
       }
@@ -163,7 +171,7 @@ exports.uploadPDFs = async (req, res) => {
       await Test.findByIdAndDelete(test._id);
       return res.status(422).json({
         message: "No valid questions parsed.",
-        debug: { pyqSample: pyqText.slice(0, 500), ansSample: ansText.slice(0, 500), answerMapLen: Object.keys(answerMap).length, totalParsed: questions.length }
+        debug: { pyqSample: pyqText.slice(0, 300), ansSample: ansText.slice(0, 300), answerMapLen: Object.keys(answerMap).length, totalParsed: questions.length }
       });
     }
 
