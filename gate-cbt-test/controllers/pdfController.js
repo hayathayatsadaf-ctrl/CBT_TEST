@@ -23,12 +23,34 @@ async function pdfParseBuffer(buffer) {
 
   const pdf = await loadingTask.promise;
   let fullText = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-    const pageText = content.items.map(item => item.str).join(" ");
-    fullText += pageText + "\n";
+
+    for (const item of content.items) {
+      const s = item.str;
+      if (!s) continue;
+
+      // Insert newline before Q\d+. patterns so questions always start on new line
+      const trimmed = s.trim();
+      if (/^Q\d+[.)]/.test(trimmed)) {
+        fullText += "\n" + s;
+      } else if (/^\([A-D]\)/.test(trimmed)) {
+        // Options also on new line
+        fullText += "\n" + s;
+      } else {
+        fullText += " " + s;
+      }
+    }
+    fullText += "\n"; // page break
   }
+
+  // Post-process: also split on section headings and Q\d+ mid-line
+  fullText = fullText
+    .replace(/\s+(Q\d+[.)]\s)/g, "\n$1")
+    .replace(/\s+(\([A-D]\)\s)/g, "\n$1");
+
   return { text: fullText };
 }
 
@@ -57,7 +79,7 @@ function parseAnswerMap(ansText) {
   for (const line of lines) {
     // FORMAT A: "Q1. Answer: B [MCQ | 1 Mark..."
     const fmtA = line.match(
-      /Q?(\d+)[.)]\s*Answer:\s*([A-D]|-?\d+(?:\.\d+)?)\s*\[\s*(MCQ|NAT)[^|]*\|\s*(\d+)\s*Mark/i
+      /Q?(\d+)[.)]\s*Answer:\s*([A-D]|-?\d+(?:\.\d+)?)\s*\[\s*(MCQ|NAT)[^\]]*?\|\s*(\d+)\s*Mark/i
     );
     if (fmtA) {
       const type  = fmtA[3].toUpperCase();
