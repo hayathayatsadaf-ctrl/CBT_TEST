@@ -172,3 +172,36 @@ exports.uploadPDFs = async (req, res) => {
     res.status(500).json({ message:"PDF parsing failed", error:error.message });
   }
 };
+
+// ── EXTRA EXPORTS needed by pdfRoutes.js ────────────────────────
+
+exports.getTests = async (req, res) => {
+  try {
+    const Test = require("../models/Test");
+    const tests = await Test.find().sort({ createdAt: -1 });
+    res.status(200).json(tests);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getQuestionsByTest = async (req, res) => {
+  try {
+    const questions = await Question.find({ testId: req.params.testId });
+    res.status(200).json(questions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getAllQuestions = async (req, res) => {
+  try {
+    const Test = require("../models/Test");
+    const latest = await Test.findOne().sort({ createdAt: -1 });
+    if (!latest) return res.status(404).json({ message: "No tests found" });
+    const questions = await Question.find({ testId: latest._id });
+    res.status(200).json(questions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
