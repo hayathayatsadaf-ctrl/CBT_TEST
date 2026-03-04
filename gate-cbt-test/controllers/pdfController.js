@@ -1,9 +1,9 @@
-const pdf = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 const Question = require("../models/Question");
 const Test = require("../models/Test");
 
 async function pdfParseBuffer(buffer) {
-  const data = await pdf(buffer);
+  const data = await pdfParse(buffer);
   return { text: data.text };
 }
 
