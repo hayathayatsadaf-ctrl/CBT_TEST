@@ -5,12 +5,40 @@ import API from "../services/api";
 const UploadPage = () => {
   const [pyqFile, setPyqFile] = useState(null);
   const [answerFile, setAnswerFile] = useState(null);
-  const [totalStudents, setTotalStudents] = useState(1000);
+  const [profileImage, setProfileImage] = useState(null);
+  const [profilePreview, setProfilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-
+  const [profileSuccess, setProfileSuccess] = useState(false);
   const navigate = useNavigate();
+
+  const handleProfileImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setProfileImage(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setProfilePreview(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleProfileUpload = async () => {
+    if (!profileImage) return;
+    setProfileLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("profileImage", profileImage);
+      await API.post("/auth/upload-profile", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setProfileSuccess(true);
+    } catch (err) {
+      alert(err.response?.data?.message || "Profile image upload failed.");
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   const handleUpload = async () => {
     if (!pyqFile || !answerFile) {
@@ -21,26 +49,21 @@ const UploadPage = () => {
       setError("Please enter a valid number of students.");
       return;
     }
+    setLoading(true);
+    setError(null);
+    setResult(null);
     try {
-      setLoading(true);
-      setError(null);
-      setResult(null);
-
       const formData = new FormData();
       formData.append("pyq", pyqFile);
       formData.append("answerKey", answerFile);
-      formData.append("totalStudents", totalStudents);
-
-      const res = await API.post("/pdf/upload", formData);
+      formData.append("totalStudents", 1000);
+      formData.append("setCode", setCode); // ✅ fixed at 1000
+      const res = await API.post("/pdf/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setResult(res.data);
     } catch (err) {
-      console.error("UPLOAD ERROR:", err);
-      setError(
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        err.message ||
-        "Upload failed"
-      );
+      setError(err.response?.data?.message || "Upload failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -49,42 +72,84 @@ const UploadPage = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h2 style={styles.title}>📄 Upload Question Paper</h2>
 
-        <div style={styles.box}>
-          <label>Total Students Appearing</label>
+        {/* Profile Image Upload */}
+        <div style={styles.profileSection}>
+          <h3 style={styles.profileTitle}>👤 Profile Photo</h3>
+          <div style={styles.profileRow}>
+            <div style={styles.avatarPreview}>
+              {profilePreview
+                ? <img src={profilePreview} alt="preview" style={styles.avatarImg} />
+                : <span style={styles.avatarPlaceholder}>📷</span>
+              }
+            </div>
+            <div style={styles.profileActions}>
+              <input type="file" accept="image/*" onChange={handleProfileImage}
+                style={{ fontSize: "13px", marginBottom: "8px" }} />
+              {profileImage && (
+                <button onClick={handleProfileUpload} disabled={profileLoading}
+                  style={profileLoading ? { ...styles.profileBtn, ...styles.btnDisabled } : styles.profileBtn}>
+                  {profileLoading ? "Uploading..." : "📤 Save Photo"}
+                </button>
+              )}
+              {profileSuccess && <p style={{ color: "#4caf50", fontSize: "13px", marginTop: "6px" }}>✅ Photo saved!</p>}
+            </div>
+          </div>
+        </div>
+
+        <hr style={{ margin: "24px 0", borderColor: "#eee" }} />
+
+        <h2 style={styles.title}>📄 Upload Question Paper</h2>
+        <p style={styles.subtitle}>Upload PYQ and Answer Key PDFs to populate the test</p>
+
+        {/* ✅ Total Students Input */}
+        <div style={styles.studentsBox}>
+          <label style={styles.label}>👥 Total Students Appearing in Exam</label>
           <input
             type="number"
             min="1"
             value={totalStudents}
             onChange={(e) => setTotalStudents(parseInt(e.target.value) || 1)}
-            style={styles.input}
+            style={styles.numberInput}
+            placeholder="e.g. 3000"
           />
+          <p style={styles.studentsHint}>
+            Rank will be calculated out of <strong>{totalStudents.toLocaleString()}</strong> students
+          </p>
+          <p style={{ marginTop: "10px", fontWeight: "bold" }}>Question Paper Set</p>
+          <select
+            value={setCode}
+            onChange={e => setSetCode(e.target.value)}
+            style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid #ccc", fontSize: "16px", width: "100%" }}
+          >
+            <option value="A">Set A</option>
+            <option value="B">Set B</option>
+            <option value="C">Set C</option>
+            <option value="D">Set D</option>
+          </select>
+          <p style={{display:'none'}}>
+          </p>
+
         </div>
 
-        <div style={styles.box}>
-          <label>🗒️ PYQ (Question Paper) PDF</label>
-          <br />
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setPyqFile(e.target.files[0])}
-          />
-          {pyqFile && <p style={{ color: "green" }}>✅ {pyqFile.name}</p>}
+        {/* PYQ Upload */}
+        <div style={styles.uploadBox}>
+          <label style={styles.label}>📝 PYQ (Question Paper) PDF</label>
+          <input type="file" accept="application/pdf"
+            onChange={(e) => setPyqFile(e.target.files[0])} style={styles.fileInput} />
+          {pyqFile && <p style={styles.fileName}>✅ {pyqFile.name}</p>}
         </div>
 
-        <div style={styles.box}>
-          <label>🔑 Answer Key PDF</label>
-          <br />
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setAnswerFile(e.target.files[0])}
-          />
-          {answerFile && <p style={{ color: "green" }}>✅ {answerFile.name}</p>}
+        {/* Answer Key Upload */}
+        <div style={styles.uploadBox}>
+          <label style={styles.label}>🔑 Answer Key PDF</label>
+          <input type="file" accept="application/pdf"
+            onChange={(e) => setAnswerFile(e.target.files[0])} style={styles.fileInput} />
+          {answerFile && <p style={styles.fileName}>✅ {answerFile.name}</p>}
         </div>
 
-        <button onClick={handleUpload} disabled={loading} style={styles.button}>
+        <button onClick={handleUpload} disabled={loading}
+          style={loading ? { ...styles.btn, ...styles.btnDisabled } : styles.btn}>
           {loading ? "⏳ Uploading & Parsing..." : "🚀 Upload PDFs"}
         </button>
 
@@ -92,23 +157,16 @@ const UploadPage = () => {
           <div style={styles.success}>
             <h3>✅ Upload Successful!</h3>
             <p>Total Questions: <strong>{result.totalQuestions}</strong></p>
-            <p>MCQ: {result.mcqQuestions} | NAT: {result.natQuestions}</p>
-            <p>Total Marks: {result.totalPossibleMarks}</p>
-            <p>Sections: <strong>{result.sections?.join(", ")}</strong></p>
-            <button onClick={() => navigate("/test")} style={styles.goBtn}>
-              Go to Test →
-            </button>
+            <p>Total Students: <strong>{result.totalStudents?.toLocaleString()}</strong></p>
+            {result.sections && <p>Sections: <strong>{result.sections.join(", ")}</strong></p>}
+            <button onClick={() => navigate("/test")} style={styles.goBtn}>Go to Test →</button>
           </div>
         )}
 
-        {error && (
-          <div style={styles.error}>
-            ❌ {error}
-          </div>
-        )}
+        {error && <div style={styles.errorBox}><p>❌ {error}</p></div>}
 
-        <div style={styles.formatBox}>
-          <p>📌 <strong>PDF Format Requirements</strong></p>
+        <div style={styles.guide}>
+          <h4>📌 PDF Format Requirements</h4>
           <p><strong>Question Paper:</strong> Each question must start with <code>Q1.</code>, <code>Q2.</code> etc.</p>
           <p><strong>Options:</strong> Must be labeled <code>(A)</code>, <code>(B)</code>, <code>(C)</code>, <code>(D)</code></p>
           <p><strong>Sections:</strong> Add a line like <code>Section: Aptitude</code> before each section</p>
@@ -120,49 +178,33 @@ const UploadPage = () => {
 };
 
 const styles = {
-  container: {
-    minHeight: "100vh",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "flex-start",
-    background: "#f4f4f4",
-    padding: "40px 16px",
-  },
-  card: {
-    background: "#fff",
-    padding: "30px",
-    borderRadius: "12px",
-    width: "100%",
-    maxWidth: "520px",
-    boxShadow: "0 5px 20px rgba(0,0,0,0.1)",
-  },
-  title: { marginBottom: "20px" },
-  box: { marginBottom: "20px" },
-  input: { width: "100%", padding: "8px", marginTop: "5px" },
-  button: {
-    width: "100%", padding: "12px",
-    background: "#ff8c00", color: "#fff",
-    border: "none", borderRadius: "6px", cursor: "pointer",
-    fontSize: "1rem", fontWeight: "bold",
-  },
-  goBtn: {
-    marginTop: "10px", padding: "10px 20px",
-    background: "#2e7d32", color: "#fff",
-    border: "none", borderRadius: "6px", cursor: "pointer",
-  },
-  success: {
-    marginTop: "20px", padding: "15px",
-    background: "#e8f5e9", borderRadius: "6px",
-  },
-  error: {
-    marginTop: "20px", padding: "15px",
-    background: "#ffebee", color: "red", borderRadius: "6px",
-  },
-  formatBox: {
-    marginTop: "24px", padding: "14px",
-    background: "#fff8e1", borderRadius: "8px",
-    fontSize: "0.82rem", lineHeight: "1.8",
-  },
+  container: { minHeight: "100vh", backgroundColor: "#f5f5f5", display: "flex", justifyContent: "center", alignItems: "center", padding: "20px" },
+  card: { backgroundColor: "#fff", borderRadius: "12px", padding: "40px", width: "100%", maxWidth: "550px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" },
+  profileSection: { backgroundColor: "#f0f4ff", borderRadius: "10px", padding: "20px", marginBottom: "8px" },
+  profileTitle: { fontSize: "16px", fontWeight: "700", color: "#1a3a8f", marginBottom: "14px" },
+  profileRow: { display: "flex", alignItems: "center", gap: "20px" },
+  avatarPreview: { width: "80px", height: "80px", borderRadius: "50%", backgroundColor: "#1a3a8f", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
+  avatarImg: { width: "100%", height: "100%", objectFit: "cover" },
+  avatarPlaceholder: { fontSize: "28px" },
+  profileActions: { display: "flex", flexDirection: "column" },
+  profileBtn: { padding: "8px 16px", backgroundColor: "#1a3a8f", color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" },
+  studentsBox: { backgroundColor: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "10px", padding: "18px", marginBottom: "20px" },
+  numberInput: { width: "100%", padding: "10px 14px", fontSize: "18px", fontWeight: "700", border: "2px solid #4ade80", borderRadius: "8px", textAlign: "center", color: "#166534", outline: "none", boxSizing: "border-box", marginTop: "8px" },
+  studentsHint: { fontSize: "13px", color: "#166534", marginTop: "8px", marginBottom: "10px" },
+  rankPreview: { display: "flex", flexDirection: "column", gap: "4px" },
+  rankItem: { fontSize: "12px", color: "#374151", backgroundColor: "#fff", borderRadius: "6px", padding: "5px 10px", border: "1px solid #d1fae5" },
+  title: { fontSize: "24px", fontWeight: "bold", marginBottom: "8px", color: "#1a1a1a" },
+  subtitle: { color: "#666", marginBottom: "30px", fontSize: "14px" },
+  uploadBox: { backgroundColor: "#f9f9f9", border: "2px dashed #ddd", borderRadius: "8px", padding: "20px", marginBottom: "20px" },
+  label: { display: "block", fontWeight: "600", marginBottom: "10px", fontSize: "15px", color: "#333" },
+  fileInput: { width: "100%", fontSize: "14px" },
+  fileName: { marginTop: "8px", fontSize: "13px", color: "#4caf50", fontWeight: "500" },
+  btn: { width: "100%", padding: "14px", backgroundColor: "#ff8c00", color: "#fff", border: "none", borderRadius: "8px", fontSize: "16px", fontWeight: "bold", cursor: "pointer", marginTop: "10px" },
+  btnDisabled: { backgroundColor: "#ccc", cursor: "not-allowed" },
+  success: { marginTop: "20px", backgroundColor: "#e8f5e9", border: "1px solid #4caf50", borderRadius: "8px", padding: "20px", textAlign: "center", color: "#2e7d32" },
+  goBtn: { marginTop: "12px", padding: "10px 24px", backgroundColor: "#4caf50", color: "#fff", border: "none", borderRadius: "6px", fontSize: "15px", cursor: "pointer", fontWeight: "bold" },
+  errorBox: { marginTop: "20px", backgroundColor: "#ffebee", border: "1px solid #f44336", borderRadius: "8px", padding: "15px", color: "#c62828", textAlign: "center" },
+  guide: { marginTop: "30px", backgroundColor: "#fff8e1", border: "1px solid #ffe082", borderRadius: "8px", padding: "16px", fontSize: "13px", color: "#555", lineHeight: "1.8" },
 };
 
 export default UploadPage;
