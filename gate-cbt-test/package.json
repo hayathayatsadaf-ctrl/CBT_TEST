@@ -22,7 +22,8 @@
     "multer": "^2.1.0",
     "pdf-parse": "^1.1.1",
     "pdf2json": "^4.0.2",
-    "pdfjs-dist": "^3.11.174"
+    "pdfjs-dist": "^3.11.174",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

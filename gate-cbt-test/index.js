@@ -35,10 +35,12 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 const authRoutes   = require("./routes/authRoutes");
 const pdfRoutes    = require("./routes/pdfRoutes");
 const resultRoutes = require("./routes/resultRoutes");
+const excelRoutes  = require("./routes/excelRoutes");   // ← NEW
 
 app.use("/api/auth",   authRoutes);
 app.use("/api/pdf",    pdfRoutes);
 app.use("/api/result", resultRoutes);
+app.use("/api/excel",  excelRoutes);                    // ← NEW
 
 app.get("/", (req, res) => res.send("CBT Backend Running ✅"));
 
