@@ -9,7 +9,8 @@ import "../styles/test.css";
 
 const TestPage = () => {
   const [allQuestions, setAllQuestions] = useState([]);
-  const [section, setSection] = useState("Aptitude");
+  const [sections, setSections] = useState([]);         // ✅ dynamic sections
+  const [section, setSection] = useState(null);         // ✅ null until loaded
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [user, setUser] = useState(null);
@@ -18,11 +19,11 @@ const TestPage = () => {
 
   const navigate = useNavigate();
 
-  // ✅ Fetch user info - always gets latest including profileImage
+  // Fetch user info
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await API.get("/auth/me"); // ✅ /me always returns latest user from DB
+        const res = await API.get("/auth/me");
         setUser(res.data);
       } catch (err) {
         console.error("User fetch error:", err.response?.data || err.message);
@@ -46,7 +47,18 @@ const TestPage = () => {
         setTestId(latestTest._id);
 
         const questionsRes = await API.get(`/pdf/questions/${latestTest._id}`);
-        setAllQuestions(questionsRes.data);
+        const qs = questionsRes.data;
+        setAllQuestions(qs);
+
+        // ✅ FIXED: Extract unique sections directly from the questions
+        // Old code: section was hardcoded as "Aptitude"
+        // New code: sections come from DB — match exactly what PDF had
+        const uniqueSections = [...new Set(qs.map(q => q.section).filter(Boolean))];
+
+        if (uniqueSections.length > 0) {
+          setSections(uniqueSections);
+          setSection(uniqueSections[0]); // ✅ Start on first section from PDF
+        }
       } catch (err) {
         console.error("Questions fetch error:", err.response?.data || err.message);
       } finally {
@@ -56,6 +68,7 @@ const TestPage = () => {
     fetchQuestions();
   }, [navigate]);
 
+  // Filter questions for current section
   const questions = allQuestions.filter((q) => q.section === section);
   const safeIndex = Math.min(currentIndex, Math.max(questions.length - 1, 0));
 
@@ -111,18 +124,36 @@ const TestPage = () => {
     </div>
   );
 
+  // ✅ section is null until questions load — wait for it
+  if (!section) return <h2 style={{ textAlign: "center", marginTop: "100px" }}>Loading sections...</h2>;
+
   if (questions.length === 0) return (
     <div style={{ textAlign: "center", marginTop: "100px", fontFamily: "sans-serif" }}>
       <div style={{ fontSize: "60px" }}>🔍</div>
       <h2>No questions found for section: {section}</h2>
       <p style={{ color: "#666" }}>Try switching to a different section.</p>
+      <div style={{ marginTop: "20px", display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+        {sections.map(sec => (
+          <button key={sec} onClick={() => changeSection(sec)} style={{
+            padding: "10px 20px", backgroundColor: "#1a3a8f", color: "#fff",
+            border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "14px",
+          }}>
+            {sec}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
   return (
     <div className="test-container">
-      {/* ✅ Pass full user object including profileImage */}
-      <TopBar section={section} changeSection={changeSection} user={user} />
+      {/* ✅ Pass dynamic sections array to TopBar */}
+      <TopBar
+        section={section}
+        changeSection={changeSection}
+        user={user}
+        sections={sections}
+      />
 
       <div className="main-content">
         <QuestionPanel
