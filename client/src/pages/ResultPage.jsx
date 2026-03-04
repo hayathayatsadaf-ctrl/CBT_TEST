@@ -24,7 +24,11 @@ const ResultPage = () => {
   if (loading) return <h2 style={{ textAlign: "center", marginTop: "100px" }}>Loading result...</h2>;
   if (!result) return <h2 style={{ textAlign: "center", marginTop: "100px" }}>No result found.</h2>;
 
-  const percentage = result.percentage ?? ((result.totalMarks / result.attempted) * 100).toFixed(1);
+  // ✅ BUG FIX #4: Use percentage directly from backend (already correctly calculated).
+  // Old fallback was: (totalMarks / attempted) * 100 → WRONG (divides by attempted, not total marks).
+  // Backend now always sends correct percentage = (totalMarks / totalPossibleMarks) * 100.
+  const percentage = parseFloat(result.percentage ?? 0).toFixed(1);
+
   const isFirstAttempt = result.attemptNumber === 1;
   const passedFirstAttempt = parseFloat(percentage) >= 50;
   const showRetryButton = isFirstAttempt && passedFirstAttempt;
@@ -34,6 +38,14 @@ const ResultPage = () => {
     : result.attemptNumber >= 2
     ? "You have used both attempts for this test."
     : null;
+
+  // ✅ Show marks as: obtained / totalPossible (e.g. "14 / 65")
+  const marksDisplay = result.totalPossibleMarks
+    ? `${result.totalMarks} / ${result.totalPossibleMarks}`
+    : result.totalMarks;
+
+  // ✅ Skipped = total questions - attempted
+  const skipped = result.skipped ?? (result.totalQuestions - result.attempted) ?? "—";
 
   return (
     <div style={styles.container}>
@@ -52,7 +64,9 @@ const ResultPage = () => {
           backgroundColor: result.selected === false ? "#dc2626" : passedFirstAttempt ? "#1a3a8f" : "#dc2626",
         }}>
           <div style={styles.scoreNumber}>{result.totalMarks}</div>
-          <div style={styles.scoreLabel}>Total Marks</div>
+          <div style={styles.scoreLabel}>
+            {result.totalPossibleMarks ? `out of ${result.totalPossibleMarks}` : "Total Marks"}
+          </div>
         </div>
 
         {/* Stats Grid */}
@@ -70,12 +84,18 @@ const ResultPage = () => {
             <div style={styles.statLabel}>📝 Attempted</div>
           </div>
           <div style={{ ...styles.statBox, backgroundColor: "#fef9c3" }}>
+            {/* ✅ Percentage is now correct: marks obtained / all question marks × 100 */}
             <div style={{ ...styles.statNumber, color: "#ca8a04" }}>{percentage}%</div>
             <div style={styles.statLabel}>📈 Percentage</div>
           </div>
         </div>
 
-        {/* ✅ Rank Badge — shows Not Selected if below 40% */}
+        {/* ✅ Skipped questions count */}
+        <div style={styles.skippedRow}>
+          ⬜ <strong>{skipped}</strong> question(s) not attempted — 0 marks, no penalty
+        </div>
+
+        {/* Rank Badge */}
         {result.selected === false ? (
           <div style={styles.notSelectedBadge}>
             ❌ Not Selected — Score below 40% cutoff
@@ -162,11 +182,16 @@ const styles = {
   scoreLabel: { fontSize: "12px", color: "#bfdbfe" },
   statsGrid: {
     display: "grid", gridTemplateColumns: "1fr 1fr",
-    gap: "14px", marginBottom: "20px",
+    gap: "14px", marginBottom: "12px",
   },
   statBox: { borderRadius: "10px", padding: "16px", textAlign: "center" },
   statNumber: { fontSize: "28px", fontWeight: "bold" },
   statLabel: { fontSize: "13px", color: "#555", marginTop: "4px" },
+  skippedRow: {
+    textAlign: "center", fontSize: "13px", color: "#6b7280",
+    backgroundColor: "#f9fafb", border: "1px solid #e5e7eb",
+    borderRadius: "8px", padding: "10px", marginBottom: "16px",
+  },
   rankBadge: {
     textAlign: "center", fontSize: "18px",
     backgroundColor: "#fef9c3", color: "#92400e",
