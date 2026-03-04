@@ -1,4 +1,4 @@
-const pdfParse = require("pdf-parse");
+const pdfParse = require("pdf-parse").default || require("pdf-parse");
 const Question = require("../models/Question");
 const Test = require("../models/Test");
 
