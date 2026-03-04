@@ -23,57 +23,80 @@ exports.submitTest = async (req, res) => {
       });
     }
 
-    const questionIds = answers.map((a) => a.questionId);
-    const questions = await Question.find({ _id: { $in: questionIds } });
+    // ✅ BUG FIX #1: Fetch ALL questions for this test, not just answered ones.
+    // Old code fetched only answered question IDs → totalPossibleMarks was wrong.
+    // Example: 2 answered out of 20 → totalPossibleMarks = 2 marks → 100% bug.
+    const allTestQuestions = await Question.find({ testId });
+
+    // Also build a map for quick lookup by ID
+    const questionMap = {};
+    for (const q of allTestQuestions) {
+      questionMap[q._id.toString()] = q;
+    }
+
+    // ✅ BUG FIX #2: totalPossibleMarks = sum of ALL questions in the test (not just answered)
+    const totalPossibleMarks = allTestQuestions.reduce((sum, q) => sum + q.marks, 0);
 
     let correct = 0, wrong = 0, attempted = 0, totalMarks = 0;
     const subjectPerformance = {};
 
     for (let ans of answers) {
-      const q = questions.find((q) => q._id.toString() === ans.questionId);
+      const q = questionMap[ans.questionId];
+
+      // Skip if question not found or no option selected (unanswered = 0 marks, no penalty)
       if (!q || !ans.selectedOption) continue;
 
       attempted++;
+
       if (ans.selectedOption === q.correctAnswer) {
+        // ✅ Correct answer → add marks
         correct++;
         totalMarks += q.marks;
       } else {
+        // ✅ BUG FIX #3: NAT (Numerical Answer Type) questions have NO negative marking.
+        // Old code applied negativeMarks to ALL wrong answers including NAT.
+        // Only MCQ wrong answers get negative marks.
         wrong++;
-        totalMarks -= q.negativeMarks;
+        const isNAT = q.type === "NAT" || q.questionType === "NAT";
+        if (!isNAT) {
+          totalMarks -= q.negativeMarks; // MCQ wrong → deduct negative marks
+        }
+        // NAT wrong → 0 deduction (do nothing)
       }
 
-      if (!subjectPerformance[q.subject]) subjectPerformance[q.subject] = { correct: 0, wrong: 0 };
-      if (ans.selectedOption === q.correctAnswer) subjectPerformance[q.subject].correct++;
-      else subjectPerformance[q.subject].wrong++;
+      // Subject-wise tracking
+      if (!subjectPerformance[q.subject]) {
+        subjectPerformance[q.subject] = { correct: 0, wrong: 0 };
+      }
+      if (ans.selectedOption === q.correctAnswer) {
+        subjectPerformance[q.subject].correct++;
+      } else {
+        subjectPerformance[q.subject].wrong++;
+      }
     }
 
-    const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
-    const percentage = totalPossibleMarks > 0 ? (totalMarks / totalPossibleMarks) * 100 : 0;
+    // ✅ CORRECT percentage formula: obtained marks / ALL question marks × 100
+    // Old fallback in frontend was: totalMarks / attempted × 100 → also wrong
+    const percentage = totalPossibleMarks > 0
+      ? (totalMarks / totalPossibleMarks) * 100
+      : 0;
+
     const attemptNumber = attemptRecord ? attemptRecord.attempts + 1 : 1;
 
-    // ✅ Get totalStudents from Test record
+    // Get totalStudents from Test record
     const test = await Test.findById(testId);
     const totalStudents = test?.totalStudents || 1000;
 
-    // ✅ Rank logic:
-    // Above 80%  → top ranks 1, 2, 3, 4... (based on how far above 80%)
-    // 40% - 80%  → smooth rank out of totalStudents
-    // Below 40%  → not selected (rank = null)
+    // Rank logic
     let rank = null;
     let selected = true;
 
     if (percentage < 40) {
-      // Not selected
       selected = false;
       rank = null;
     } else if (percentage > 80) {
-      // Top ranks — every 1% above 80 = roughly 1 rank step
-      // 100% → rank 1, 99% → rank ~20, 87% → rank ~260 etc.
-      // Formula: rank = ceil(totalStudents * (100 - percentage) / 100 * 0.1)
       rank = Math.max(1, Math.ceil(totalStudents * ((100 - percentage) / 100) * 0.1));
     } else {
-      // 40-80% → smooth rank from ~20% to ~80% of totalStudents
-      // 80% → rank ~200, 65% → rank ~1600, 50% → rank ~2500, 40% → rank ~2800
       rank = Math.ceil(totalStudents * (1 - percentage / 100));
     }
 
@@ -81,9 +104,11 @@ exports.submitTest = async (req, res) => {
       userId,
       testId,
       totalMarks,
+      totalPossibleMarks, // ✅ Also save this so frontend can show X / totalPossibleMarks
       correct,
       wrong,
       attempted,
+      skipped: allTestQuestions.length - attempted, // ✅ Now we know total questions
       rank,
       totalStudents,
       selected,
