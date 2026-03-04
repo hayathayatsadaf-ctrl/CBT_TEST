@@ -5,45 +5,47 @@ const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 
+// ✅ Fix pdf-parse test file issue on Render
+const pdfTestDir = path.join(__dirname, "node_modules", "pdf-parse", "test", "data");
+const pdfTestFile = path.join(pdfTestDir, "05-versions-space.pdf");
+if (!fs.existsSync(pdfTestDir)) fs.mkdirSync(pdfTestDir, { recursive: true });
+if (!fs.existsSync(pdfTestFile)) {
+  fs.writeFileSync(pdfTestFile, "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 3 3]>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n0000000115 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF");
+  console.log("✅ pdf-parse test file created");
+}
+
 const app = express();
 
-// ✅ Fixed CORS for production
 app.use(cors({
   origin: [
     "http://localhost:3000",
     "https://cbt-test-backend.onrender.com",
-    /\.vercel\.app$/,  // allows any vercel subdomain
+    /\.vercel\.app$/,
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
-app.options("*", cors()); // handle preflight
+app.options("*", cors());
 
 app.use(express.json());
-
-// ✅ Serve uploaded files (profile images)
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use("/uploads", express.static(uploadsDir));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Routes
-const authRoutes = require("./routes/authRoutes");
-const pdfRoutes = require("./routes/pdfRoutes");
+const authRoutes   = require("./routes/authRoutes");
+const pdfRoutes    = require("./routes/pdfRoutes");
 const resultRoutes = require("./routes/resultRoutes");
 
-app.use("/api/auth", authRoutes);
-app.use("/api/pdf", pdfRoutes);
+app.use("/api/auth",   authRoutes);
+app.use("/api/pdf",    pdfRoutes);
 app.use("/api/result", resultRoutes);
 
-app.get("/", (req, res) => res.status(200).json({ message: "API Running Successfully 🚀" }));
-
-// ✅ Use dynamic PORT for Render
-const PORT = process.env.PORT || 5000;
+app.get("/", (req, res) => res.send("CBT Backend Running ✅"));
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log("MongoDB Connected");
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    console.log("✅ MongoDB connected");
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
-  .catch((err) => console.error("MongoDB Connection Error:", err));
+  .catch((err) => console.error("MongoDB error:", err));
