@@ -1,8 +1,9 @@
 const Question = require("../models/Question");
 const Test = require("../models/Test");
+const https = require("https");
 
 // ══════════════════════════════════════════════════════════════════
-// PDF TEXT EXTRACTOR — pdfjs-dist (handles any PDF)
+// PDF TEXT EXTRACTOR — pdfjs-dist
 // ══════════════════════════════════════════════════════════════════
 async function pdfParseBuffer(buffer) {
   let pdfjsLib;
@@ -27,26 +28,19 @@ async function pdfParseBuffer(buffer) {
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-
     for (const item of content.items) {
-      const s = item.str;
-      if (!s) continue;
-
-      // Insert newline before Q\d+. patterns so questions always start on new line
-      const trimmed = s.trim();
-      if (/^Q\d+[.)]/.test(trimmed)) {
-        fullText += "\n" + s;
-      } else if (/^\([A-D]\)/.test(trimmed)) {
-        // Options also on new line
-        fullText += "\n" + s;
+      if (!item.str) continue;
+      const s = item.str.trim();
+      if (/^Q\d+[.)]/.test(s) || /^\([A-D]\)/.test(s)) {
+        fullText += "\n" + item.str;
       } else {
-        fullText += " " + s;
+        fullText += " " + item.str;
       }
     }
-    fullText += "\n"; // page break
+    fullText += "\n";
   }
 
-  // Post-process: also split on section headings and Q\d+ mid-line
+  // Post-process: split on Q\d+ mid-line
   fullText = fullText
     .replace(/\s+(Q\d+[.)]\s)/g, "\n$1")
     .replace(/\s+(\([A-D]\)\s)/g, "\n$1");
@@ -55,335 +49,98 @@ async function pdfParseBuffer(buffer) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ANSWER KEY PARSER
-// FORMAT A: "Q1. Answer: B [MCQ | 1 Mark | Negative: -0.33] Subject: ..."
-// FORMAT B: "| 1 | MCA | CS2 | D | 1 |"
-// FORMAT C: "1. B"  "Q1. B"
-// FORMAT D: NAT "Q3. 9"
+// GROQ AI PARSER — free, fast Llama model
 // ══════════════════════════════════════════════════════════════════
-function parseAnswerMap(ansText) {
-  const answerMap = {};
+async function parseWithGroq(pyqText, answerText) {
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in environment");
 
-  let lines = ansText.split("\n").map(l => l.trim()).filter(Boolean);
+  const prompt = `You are a question paper parser. Extract all questions from the question paper and match with answer key.
 
-  // If few lines (PDF merged text), split on Q\d+. boundaries
-  if (lines.length <= 5) {
-    const expanded = [];
-    for (const line of lines) {
-      const parts = line.split(/(?=Q\d+\.\s)/);
-      expanded.push(...parts.map(p => p.trim()).filter(Boolean));
-    }
-    lines = expanded;
+QUESTION PAPER:
+${pyqText.slice(0, 12000)}
+
+ANSWER KEY:
+${answerText.slice(0, 4000)}
+
+Return ONLY a valid JSON array. No explanation, no markdown, no extra text. Example:
+[
+  {
+    "questionNumber": 1,
+    "question": "Full question text",
+    "type": "MCQ",
+    "options": ["option A text", "option B text", "option C text", "option D text"],
+    "correctAnswer": "option B text",
+    "section": "General Aptitude",
+    "marks": 1,
+    "negativeMarks": 0.33
+  },
+  {
+    "questionNumber": 3,
+    "question": "NAT question text",
+    "type": "NAT",
+    "options": [],
+    "correctAnswer": "9",
+    "section": "Operating Systems",
+    "marks": 1,
+    "negativeMarks": 0
   }
+]
 
-  // ── FORMAT E: Inline table "1.   B 2.   B 3.   C ..."
-  // Scan all lines for this pattern and extract answers
-  for (const line of lines) {
-    // Match all "number. Letter" pairs in a single line
-    const inlinePairs = [...line.matchAll(/\b(\d+)[.)\s]+([A-D])\b/g)];
-    if (inlinePairs.length >= 3) {  // at least 3 pairs = it's a table line
-      for (const pair of inlinePairs) {
-        const qno = pair[1];
-        const ans = pair[2].toUpperCase();
-        if (!answerMap[qno]) {  // don't overwrite more specific formats
-          answerMap[qno] = { answer: ans, type: "MCQ", marks: 1, negativeMarks: 0.33 };
+Rules:
+- type: "MCQ" or "NAT" only
+- MCQ correctAnswer: full option text (not just A/B/C/D)
+- NAT correctAnswer: numeric value as string
+- section: from headings e.g. "General Aptitude", "Data Structures"
+- marks: 1 or 2
+- negativeMarks: 0.33 for 1-mark MCQ, 0.66 for 2-mark MCQ, 0 for NAT
+- Extract ALL questions without skipping
+- Return ONLY the JSON array`;
+
+  const body = JSON.stringify({
+    model: "llama-3.3-70b-versatile",
+    max_tokens: 8000,
+    temperature: 0,
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: "api.groq.com",
+      path: "/openai/v1/chat/completions",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Content-Length": Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const response = JSON.parse(data);
+          if (response.error) return reject(new Error(response.error.message));
+          const text = response.choices[0].message.content.trim();
+          // Strip markdown code blocks if present
+          const clean = text
+            .replace(/^```json\s*/i, "")
+            .replace(/^```\s*/i, "")
+            .replace(/```\s*$/i, "")
+            .trim();
+          const questions = JSON.parse(clean);
+          resolve(questions);
+        } catch(e) {
+          reject(new Error("Groq response parse failed: " + e.message));
         }
-      }
-    }
-  }
+      });
+    });
 
-  for (const line of lines) {
-    // FORMAT A: "Q1. Answer: B [MCQ | 1 Mark..."
-    const fmtA = line.match(
-      /Q?(\d+)[.)]\s*Answer:\s*([A-D]|-?\d+(?:\.\d+)?)\s*\[\s*(MCQ|NAT)[^\]]*?\|\s*(\d+)\s*Mark/i
-    );
-    if (fmtA) {
-      const type  = fmtA[3].toUpperCase();
-      const marks = parseInt(fmtA[4]);
-      answerMap[fmtA[1]] = {
-        answer: type === "NAT" ? fmtA[2] : fmtA[2].toUpperCase(),
-        type, marks,
-        negativeMarks: type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33,
-      };
-      continue;
-    }
-
-    // FORMAT B: GATE table "| 1 | MCA | CS2 | D | 1 |"
-    const fmtB = line.match(
-      /\|?\s*(\d+)\s*\|\s*(MCA|NAT|MCQ)\s*\|\s*\w+\s*\|\s*([A-D]|-?\d+(?:\.\d+)?(?:t[o0]-?\d+(?:\.\d+)?)?)\s*\|\s*([12])/i
-    );
-    if (fmtB) {
-      const type  = fmtB[2].toUpperCase() === "MCA" ? "MCQ" : fmtB[2].toUpperCase();
-      const marks = parseInt(fmtB[4]);
-      let ans     = fmtB[3];
-      if (type === "NAT") {
-        const r = ans.match(/^(-?\d+(?:\.\d+)?)/);
-        if (r) ans = r[1];
-      } else {
-        ans = ans.toUpperCase();
-      }
-      answerMap[fmtB[1]] = { answer: ans, type, marks, negativeMarks: type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33 };
-      continue;
-    }
-
-    // FORMAT C: "1. B"  "Q1. B"
-    const fmtC = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?\(?([A-D])\)?(?:\s|$)/i);
-    if (fmtC) {
-      let marks = 1;
-      const mh = line.match(/\b([12])\s*[Mm]arks?\b/);
-      if (mh) marks = parseInt(mh[1]);
-      answerMap[fmtC[1]] = { answer: fmtC[2].toUpperCase(), type: "MCQ", marks, negativeMarks: marks === 2 ? 0.66 : 0.33 };
-      continue;
-    }
-
-    // FORMAT D: NAT "Q3. 9"
-    const fmtD = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?(-?\d+(?:\.\d+)?)(?:\s|$)/i);
-    if (fmtD) {
-      let marks = 1;
-      const mh = line.match(/\b([12])\s*[Mm]arks?\b/);
-      if (mh) marks = parseInt(mh[1]);
-      answerMap[fmtD[1]] = { answer: fmtD[2], type: "NAT", marks, negativeMarks: 0 };
-    }
-  }
-
-  return answerMap;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// SECTION DETECTOR
-// ══════════════════════════════════════════════════════════════════
-function detectSection(text) {
-  const t = text.toLowerCase();
-  if (/general\s*aptitude|^ga$/.test(t))            return "General Aptitude";
-  if (/engineering\s*math/.test(t))                 return "Engineering Mathematics";
-  if (/data\s*struct/.test(t))                      return "Data Structures";
-  if (/operating\s*sys/.test(t))                    return "Operating Systems";
-  if (/computer\s*network/.test(t))                 return "Computer Networks";
-  if (/database|dbms/.test(t))                      return "Database Management";
-  if (/algorithm/.test(t))                          return "Algorithms";
-  if (/discrete\s*math/.test(t))                    return "Discrete Mathematics";
-  if (/digital\s*logic/.test(t))                    return "Digital Logic";
-  if (/graph\s*theory/.test(t))                     return "Graph Theory";
-  if (/computer\s*(science|org)|^cs\d?$/.test(t))   return "Computer Science";
-  if (/data\s*compress/.test(t))                    return "Data Compression";
-  if (/linked.?list/.test(t))                       return "Linked List";
-  if (/\barray\b/.test(t))                          return "Array";
-  if (/\bstack\b/.test(t))                          return "Stack";
-  if (/\bqueue\b/.test(t))                          return "Queue";
-  if (/\btree\b/.test(t))                           return "Tree";
-  if (/\bgraph\b/.test(t))                          return "Graph";
-  if (/mixed|advanced/.test(t))                     return "Mixed Advanced";
-  if (/aptitude/.test(t))                           return "Aptitude";
-  if (/reasoning/.test(t))                          return "Reasoning";
-  if (/english/.test(t))                            return "English";
-  return null;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// QUESTION PARSER
-// Handles FORMAT 1 (Custom Q1.[MCQ|1 Mark]), FORMAT 2 (GATE header),
-// FORMAT 3 (plain Q1. text)
-// ══════════════════════════════════════════════════════════════════
-function parseQuestions(pyqText, answerMap, testId, testYear) {
-  const rawLines = pyqText.split("\n").map(l => l.trim()).filter(l => l.length > 1);
-
-  // Expand merged long lines on Q\d+. boundaries
-  const lines = [];
-  for (const line of rawLines) {
-    if (line.length > 200) {
-      const parts = line.split(/(?=Q\d+\.\s)/);
-      if (parts.length > 1) {
-        parts.forEach(p => p.trim() && lines.push(p.trim()));
-        continue;
-      }
-    }
-    lines.push(line);
-  }
-
-  const skipPatterns = [
-    /^graduate\s*aptitude/i,
-    /^question\s*paper\s*name/i,
-    /^subject\s*name/i,
-    /^duration\s*:/i,
-    /^total\s*(marks|questions)\s*[:|]/i,
-    /^organizing\s*institute/i,
-    /^session\s*\d/i,
-    /^iit\s+/i,
-    /^indian\s+institute/i,
-    /^GATE CBT/i,
-    /^INSTRUCTIONS/i,
-    /^\d+\.\s+(this paper|mcq|nat questions|unanswered|for mcq)/i,
-    /^1-Mark MCQ/i,
-    /^2-Mark MCQ/i,
-    /^NAT \(any\)/i,
-    /^Not Attempted/i,
-    /^MARKING SCHEME/i,
-    /^—\s*END/i,
-    /^All the best/i,
-    /^Answer:\s*_+/i,
-    /^\(Enter integer\)/i,
-    /^Answer:\s*___/i,
-    /^Total Marks:/i,
-    /^Time:/i,
-  ];
-
-  const questionsArray = [];
-  let currentSection  = "General";
-  let currentQuestion = null;
-
-  function pushCurrent() {
-    if (currentQuestion && currentQuestion.question.trim().length > 3) {
-      questionsArray.push({ ...currentQuestion });
-    }
-    currentQuestion = null;
-  }
-
-  const isGateHeader = (l) => /^Question\s*Number\s*[:\s]+\d+/i.test(l);
-  const gateMode = lines.some(isGateHeader);
-  console.log("Parser mode:", gateMode ? "GATE-header" : "Custom/Mixed");
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (skipPatterns.some(p => p.test(line))) { i++; continue; }
-
-    // Section heading (only if no question number)
-    if (!/^Q?\d+[.)]/i.test(line)) {
-      const sec = detectSection(line);
-      if (sec && line.length < 60) {
-        currentSection = sec;
-        i++; continue;
-      }
-    }
-
-    // GATE header mode
-    if (gateMode && isGateHeader(line)) {
-      pushCurrent();
-      const qnoM    = line.match(/Question\s*Number\s*[:\s]+(\d+)/i);
-      const qno     = qnoM ? parseInt(qnoM[1]) : null;
-      const corrM   = line.match(/Correct\s*[:\s]+(\d+)/i);
-      const marks   = corrM ? parseInt(corrM[1]) : 1;
-      const ansInfo = answerMap[String(qno)] || {};
-      currentQuestion = {
-        testId, questionNumber: qno, question: "", options: [],
-        correctAnswer: "", section: currentSection, subject: currentSection,
-        topic: currentSection,
-        type: ansInfo.type || "MCQ",
-        marks: ansInfo.marks || marks,
-        negativeMarks: ansInfo.negativeMarks ?? (marks === 2 ? 0.66 : 0.33),
-        year: testYear,
-      };
-      i++; continue;
-    }
-
-    // Q1. ... or 1. ...
-    const qMatch = line.match(/^Q?(\d+)[.)]\s+(.*)/i);
-    if (qMatch) {
-      pushCurrent();
-      const qno     = parseInt(qMatch[1]);
-      const rest    = qMatch[2].trim();
-      const ansInfo = answerMap[String(qno)] || {};
-
-      // Meta tag: "[MCQ | 1 Mark | Negative: -0.33]"
-      const metaM = rest.match(/^\[\s*(MCQ|NAT)\s*\|\s*(\d+)\s*Mark/i);
-      let type  = ansInfo.type  || (metaM ? metaM[1].toUpperCase() : "MCQ");
-      let marks = ansInfo.marks || (metaM ? parseInt(metaM[2]) : 1);
-      let neg   = ansInfo.negativeMarks ?? (type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33);
-      if (metaM && /No Negative/i.test(rest)) neg = 0;
-
-      // Inline options: "text (A) x (B) y (C) z (D) w"
-      const inlineOpts = rest.match(
-        /^(.*?)\s+\(A\)\s+(.*?)\s+\(B\)\s+(.*?)\s+\(C\)\s+(.*?)\s+\(D\)\s+(.+)$/i
-      );
-      if (inlineOpts) {
-        questionsArray.push({
-          testId, questionNumber: qno,
-          question: inlineOpts[1].replace(/^\[.*?\]\s*/, "").trim(),
-          options: [inlineOpts[2].trim(), inlineOpts[3].trim(), inlineOpts[4].trim(), inlineOpts[5].trim()],
-          correctAnswer: "", section: currentSection, subject: currentSection,
-          topic: currentSection, type: "MCQ", marks, negativeMarks: neg, year: testYear,
-        });
-        currentQuestion = null;
-      } else {
-        currentQuestion = {
-          testId, questionNumber: qno,
-          question: metaM ? "" : rest,
-          options: [], correctAnswer: "",
-          section: currentSection, subject: currentSection, topic: currentSection,
-          type, marks, negativeMarks: neg, year: testYear,
-        };
-      }
-      i++; continue;
-    }
-
-    // Lines belonging to current question
-    if (currentQuestion) {
-      // Meta line
-      const metaM = line.match(/^\[\s*(MCQ|NAT)\s*\|\s*(\d+)\s*Mark/i);
-      if (metaM) {
-        currentQuestion.type  = metaM[1].toUpperCase();
-        currentQuestion.marks = parseInt(metaM[2]);
-        currentQuestion.negativeMarks = /No Negative/i.test(line) ? 0
-          : currentQuestion.marks === 2 ? 0.66 : 0.33;
-        i++; continue;
-      }
-
-      // Subject line
-      const subM = line.match(/^Subject:\s*(.+)/i);
-      if (subM) {
-        currentQuestion.section = subM[1].trim();
-        currentQuestion.subject = subM[1].trim();
-        i++; continue;
-      }
-
-      // Option: "(A) text" "A) text"
-      const optM = line.match(/^\(?([A-Da-d])\)?[.)]\s*(.+)/);
-      if (optM && currentQuestion.options.length < 4) {
-        currentQuestion.options.push(optM[2].trim());
-        currentQuestion.type = "MCQ";
-        i++; continue;
-      }
-
-      // Multi-line question text
-      if (currentQuestion.options.length === 0 && line.length > 2) {
-        if (!skipPatterns.some(p => p.test(line))) {
-          currentQuestion.question = currentQuestion.question
-            ? currentQuestion.question + " " + line
-            : line;
-        }
-      }
-    }
-
-    i++;
-  }
-  pushCurrent();
-  return questionsArray;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// ASSIGN CORRECT ANSWERS
-// ══════════════════════════════════════════════════════════════════
-function assignAnswers(questions, answerMap) {
-  questions.forEach(q => {
-    const info = answerMap[String(q.questionNumber)];
-    if (!info) return;
-    if (info.type)  q.type  = info.type;
-    if (info.marks) q.marks = info.marks;
-    if (info.negativeMarks !== undefined) q.negativeMarks = info.negativeMarks;
-
-    if (q.type === "NAT") {
-      q.correctAnswer = String(info.answer);
-    } else {
-      const idx = info.answer.toUpperCase().charCodeAt(0) - 65;
-      if (q.options[idx] !== undefined) {
-        q.correctAnswer = q.options[idx];
-      } else if (q.options.length > 0) {
-        q.correctAnswer = q.options[0];
-      } else {
-        q.correctAnswer = info.answer;
-      }
-    }
+    req.on("error", reject);
+    req.write(body);
+    req.end();
   });
 }
 
@@ -404,52 +161,35 @@ exports.uploadPDFs = async (req, res) => {
     const testYear      = parseInt(req.body.year) || new Date().getFullYear();
     const totalStudents = parseInt(req.body.totalStudents) || 1000;
 
-    console.log("Parsing PYQ PDF...");
-    const pyqText = (await pdfParseBuffer(pyqBuffer)).text;
-
-    console.log("Parsing Answer Key PDF...");
+    console.log("Extracting text from PDFs...");
+    const pyqText    = (await pdfParseBuffer(pyqBuffer)).text;
     const answerText = (await pdfParseBuffer(answerBuffer)).text;
 
-    const pyqSample = pyqText.split("\n").slice(0, 5).map(l => l.trim()).filter(Boolean);
-    const ansSample = answerText.split("\n").slice(0, 5).map(l => l.trim()).filter(Boolean);
-    console.log("PYQ sample:", pyqSample);
-    console.log("ANS sample:", ansSample);
-
-    const answerMap = parseAnswerMap(answerText);
-    console.log(`Answers parsed: ${Object.keys(answerMap).length}`, answerMap);
+    console.log("Sending to Groq AI for parsing...");
+    const parsedQuestions = await parseWithGroq(pyqText, answerText);
+    console.log(`Groq parsed: ${parsedQuestions.length} questions`);
 
     const test = new Test({ name: testName, year: testYear, uploadedBy: "admin", totalStudents });
     await test.save();
 
-    const questions = parseQuestions(pyqText, answerMap, test._id, testYear);
-    console.log(`Questions before answer assign: ${questions.length}`);
+    // Attach testId and year to each question
+    const finalQuestions = parsedQuestions
+      .filter(q => q.question && q.question.trim().length > 3 && q.correctAnswer)
+      .map(q => ({
+        ...q,
+        testId: test._id,
+        year: testYear,
+        subject: q.section || "General",
+        topic: q.section || "General",
+        options: q.options || [],
+        correctAnswer: String(q.correctAnswer),
+      }));
 
-    assignAnswers(questions, answerMap);
-
-    // Filter valid — correctAnswer must exist
-    const finalQuestions = questions.filter(q => {
-      if (!q.question || q.question.trim().length < 3) return false;
-      if (!q.correctAnswer || q.correctAnswer.trim() === "") return false;
-      if (q.type === "MCQ" && q.options.length < 2) return false;
-      return true;
-    });
-
-    console.log(`Final questions: ${finalQuestions.length}`);
-    console.log("Without answers:", questions.filter(q => !q.correctAnswer).map(q => q.questionNumber));
+    console.log(`Final questions to save: ${finalQuestions.length}`);
 
     if (finalQuestions.length === 0) {
       await Test.findByIdAndDelete(test._id);
-      return res.status(400).json({
-        message: "No questions parsed. Check PDF format.",
-        debug: {
-          answerMapSize: Object.keys(answerMap).length,
-          answerMapSample: Object.entries(answerMap).slice(0, 5),
-          rawQuestionsFound: questions.length,
-          noAnswerQuestions: questions.filter(q => !q.correctAnswer).map(q => q.questionNumber),
-          pyqSample,
-          ansSample,
-        },
-      });
+      return res.status(400).json({ message: "No questions parsed. Check PDF content." });
     }
 
     await Question.insertMany(finalQuestions);
@@ -462,7 +202,7 @@ exports.uploadPDFs = async (req, res) => {
       totalQuestions: finalQuestions.length,
       mcqQuestions: finalQuestions.filter(q => q.type === "MCQ").length,
       natQuestions: finalQuestions.filter(q => q.type === "NAT").length,
-      totalPossibleMarks: finalQuestions.reduce((s, q) => s + q.marks, 0),
+      totalPossibleMarks: finalQuestions.reduce((s, q) => s + (q.marks || 1), 0),
       sections: [...new Set(finalQuestions.map(q => q.section))],
     });
 
