@@ -1,12 +1,29 @@
-const pdfParseLib = require("pdf-parse");
 const Question = require("../models/Question");
 const Test = require("../models/Test");
 
-// ✅ Safe wrapper
+// ✅ Robust PDF text extractor using pdfjs-dist (handles any PDF)
 async function pdfParseBuffer(buffer) {
-  const fn = typeof pdfParseLib === "function" ? pdfParseLib : pdfParseLib.default;
-  const data = await fn(buffer);
-  return { text: data.text };
+  const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  });
+
+  const pdf = await loadingTask.promise;
+  let fullText = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(" ");
+    fullText += pageText + "\n";
+  }
+
+  return { text: fullText };
 }
 
 // ══════════════════════════════════════════════════════════════════
