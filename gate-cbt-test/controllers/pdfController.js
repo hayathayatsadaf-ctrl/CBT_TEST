@@ -76,6 +76,22 @@ function parseAnswerMap(ansText) {
     lines = expanded;
   }
 
+  // ── FORMAT E: Inline table "1.   B 2.   B 3.   C ..."
+  // Scan all lines for this pattern and extract answers
+  for (const line of lines) {
+    // Match all "number. Letter" pairs in a single line
+    const inlinePairs = [...line.matchAll(/\b(\d+)[.)\s]+([A-D])\b/g)];
+    if (inlinePairs.length >= 3) {  // at least 3 pairs = it's a table line
+      for (const pair of inlinePairs) {
+        const qno = pair[1];
+        const ans = pair[2].toUpperCase();
+        if (!answerMap[qno]) {  // don't overwrite more specific formats
+          answerMap[qno] = { answer: ans, type: "MCQ", marks: 1, negativeMarks: 0.33 };
+        }
+      }
+    }
+  }
+
   for (const line of lines) {
     // FORMAT A: "Q1. Answer: B [MCQ | 1 Mark..."
     const fmtA = line.match(
