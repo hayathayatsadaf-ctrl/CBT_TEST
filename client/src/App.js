@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import TestPage from "./pages/TestPage";
 import ResultPage from "./pages/ResultPage";
 import UploadPage from "./pages/UploadPage";
+import ExcelUploadPage from "./pages/ExcelUploadPage";  // ← NEW
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/test" element={<TestPage />} />
         <Route path="/result" element={<ResultPage />} />
         <Route path="/upload" element={<UploadPage />} />
+        <Route path="/upload-excel" element={<ExcelUploadPage />} />  {/* ← NEW */}
       </Routes>
     </BrowserRouter>
   );
