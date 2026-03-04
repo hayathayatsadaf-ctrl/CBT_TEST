@@ -1,0 +1,91 @@
+
+/* ── AUTH / LOGIN STYLES ─────────────────────────────────────────────────────── */
+/* Container: Soft Sky Blue Glassmorphism */
+.login-container {
+  width: 380px;
+  margin: 100px auto;
+  padding: 40px;
+  background: rgba(235, 248, 255, 0.7); 
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 24px;
+  text-align: center;
+  box-shadow: 0 15px 35px rgba(0, 123, 255, 0.15), 
+              0 5px 15px rgba(0, 0, 0, 0.05);
+  animation: skyFadeIn 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: relative;
+}
+
+/* Floating Animation for the whole container */
+@keyframes skyFadeIn {
+  0% { opacity: 0; transform: translateY(30px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Inputs: Clean & Airy Style */
+.login-container input {
+  display: block;
+  width: 90%;
+  padding: 14px;
+  margin: 15px auto;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid #e0e7ff;
+  border-radius: 12px;
+  color: #334155;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.login-container input:focus {
+  border-color: #7dd3fc; 
+  background: #ffffff;
+  box-shadow: 0 0 20px rgba(125, 211, 252, 0.4);
+  transform: translateX(5px); 
+}
+
+/* Button: Ocean Blue Gradient */
+.login-container button {
+  width: 80%;
+  padding: 14px;
+  margin-top: 20px;
+  border: none;
+  border-radius: 50px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  color: white;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.3);
+}
+
+.login-container button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 12px 25px rgba(14, 165, 233, 0.4);
+  letter-spacing: 1.5px;
+}
+
+/* Link: Soft Blue Accent */
+.toggle-auth {
+  margin-top: 25px;
+  display: inline-block;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.toggle-auth:hover {
+  color: #0ea5e9;
+  text-decoration: underline;
+  transform: translateY(-1px);
+}
+
+/* Input Placeholder color */
+.login-container input::placeholder {
+  color: #94a3b8;
+}
