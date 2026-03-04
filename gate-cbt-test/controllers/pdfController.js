@@ -1,12 +1,18 @@
 const PDFParser = require("pdf2json");
+const os = require("os");
+const fs = require("fs");
+const path = require("path");
 const Question = require("../models/Question");
 const Test = require("../models/Test");
 
-// ✅ Parse from buffer (memory) instead of file path
+// ✅ Write buffer to temp file, parse, then delete
 function pdfParseBuffer(buffer) {
   return new Promise((resolve, reject) => {
+    const tmpFile = path.join(os.tmpdir(), `pdf_${Date.now()}_${Math.random()}.pdf`);
+    fs.writeFileSync(tmpFile, buffer);
     const pdfParser = new PDFParser();
     pdfParser.on("pdfParser_dataReady", (pdfData) => {
+      fs.unlinkSync(tmpFile);
       let text = "";
       pdfData.Pages.forEach((page) => {
         page.Texts.forEach((t) => {
@@ -18,18 +24,21 @@ function pdfParseBuffer(buffer) {
       });
       resolve({ text });
     });
-    pdfParser.on("pdfParser_dataError", (err) => reject(err));
-    pdfParser.parseBuffer(buffer); // ✅ buffer not file path
+    pdfParser.on("pdfParser_dataError", (err) => {
+      try { fs.unlinkSync(tmpFile); } catch(e) {}
+      reject(err);
+    });
+    pdfParser.loadPDF(tmpFile);
   });
 }
 
 function detectSection(text) {
   if (/linked.?list/i.test(text)) return "Linked List";
-  if (/array/i.test(text)) return "Array";
-  if (/stack/i.test(text)) return "Stack";
-  if (/queue/i.test(text)) return "Queue";
-  if (/tree/i.test(text)) return "Tree";
-  if (/graph/i.test(text)) return "Graph";
+  if (/\barray\b/i.test(text)) return "Array";
+  if (/\bstack\b/i.test(text)) return "Stack";
+  if (/\bqueue\b/i.test(text)) return "Queue";
+  if (/\btree\b/i.test(text)) return "Tree";
+  if (/\bgraph\b/i.test(text)) return "Graph";
   if (/mixed|advanced/i.test(text)) return "Mixed Advanced";
   if (/aptitude/i.test(text)) return "Aptitude";
   if (/reasoning/i.test(text)) return "Reasoning";
@@ -183,4 +192,4 @@ exports.getAllQuestions = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};;
+};
