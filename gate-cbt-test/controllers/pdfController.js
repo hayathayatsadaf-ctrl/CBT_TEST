@@ -25,37 +25,64 @@ function pdfParse(filePath) {
 }
 
 // ── ANSWER KEY PARSER ────────────────────────────────────────────
-// Handles: "1. B"  "1) B"  "Q1. B"  "1. Ans: B"  "1. (2 Marks) B"
-//          "3. 9"  "7. 236"  (NAT numerical answers)
+// Supports two formats:
+//
+// FORMAT 1 (our generated PDF — preferred):
+//   "Q1. Answer: B [MCQ | 1 Mark | Negative: -0.33] Subject: General Aptitude"
+//   "Q3. Answer: 9 [NAT | 1 Mark | Negative: Nil] Subject: Operating Systems"
+//
+// FORMAT 2 (simple plain text):
+//   "1. B"   "1) B"   "Q1. B"   "1. Ans: B"
+//   "3. 9"   "7. 236"  (NAT numerical)
+//
 function parseAnswerMap(ansLines) {
   const answerMap = {};
 
   for (let line of ansLines) {
-    let marks = 1;
-    const marksMatch = line.match(/\b([12])\s*(?:marks?|M)\b/i)
-                    || line.match(/[(\[]\s*([12])\s*[)\]]/);
-    if (marksMatch) marks = parseInt(marksMatch[1]);
+    // ── FORMAT 1: "Q1. Answer: B [MCQ | 1 Mark ...]" ──
+    const fmt1 = line.match(
+      /^Q(\d+)\.\s+Answer:\s+([A-D]|-?\d+(?:\.\d+)?)\s+\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i
+    );
+    if (fmt1) {
+      const qno   = fmt1[1];
+      const ans   = fmt1[2];
+      const type  = fmt1[3].toUpperCase();
+      const marks = parseInt(fmt1[4]);
+      answerMap[qno] = {
+        answer: type === "MCQ" ? ans.toUpperCase() : ans,
+        type,
+        marks,
+        negativeMarks: type === "NAT" ? 0 : marks === 2 ? 0.66 : 0.33,
+      };
+      continue;
+    }
 
-    // MCQ answer — letter A/B/C/D
+    // ── FORMAT 2: detect marks hint ──
+    let marks = 1;
+    const marksHint = line.match(/\b([12])\s*(?:marks?|M)\b/i)
+                   || line.match(/[(\[]\s*([12])\s*[)\]]/);
+    if (marksHint) marks = parseInt(marksHint[1]);
+
+    // FORMAT 2 MCQ: "1. B"  "1) B"  "Q1. B"
     const mcqMatch = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?\(?([A-D])\)?/i)
                   || line.match(/^Q?(\d+)\s+([A-D])$/i);
     if (mcqMatch) {
       answerMap[mcqMatch[1]] = {
         answer: mcqMatch[2].toUpperCase(),
-        marks,
         type: "MCQ",
+        marks,
         negativeMarks: marks === 2 ? 0.66 : 0.33,
       };
       continue;
     }
 
-    // NAT answer — numerical (integer or decimal)
+    // FORMAT 2 NAT: "3. 9"  "7. 236"
     const natMatch = line.match(/^Q?(\d+)[.)]\s*(?:Ans(?:wer)?[:\s]*)?(-?\d+(?:\.\d+)?)$/i);
     if (natMatch) {
       answerMap[natMatch[1]] = {
         answer: natMatch[2],
-        marks,
         type: "NAT",
+        marks,
         negativeMarks: 0,
       };
     }
@@ -92,25 +119,28 @@ exports.uploadPDFs = async (req, res) => {
     let currentQuestion  = null;
     let currentSection   = "General";
 
-    // Lines to skip (headers, footers, instructions)
+    // Lines to skip
     const skipPatterns = [
       /^GATE CBT/i,
       /^Total Questions/i,
       /^Total Marks/i,
       /^Time:/i,
       /^INSTRUCTIONS/i,
-      /^\d+\.\s+(This paper|MCQ|NAT|Unanswered|For MCQ)/i,
+      /^\d+\.\s+(This paper|MCQ 1|NAT |Unanswered|For MCQ)/i,
       /^1-Mark MCQ/i,
+      /^2-Mark MCQ/i,
+      /^NAT \(any\)/i,
+      /^Not Attempted/i,
       /^—\s*END/i,
       /^All the best/i,
       /^Answer:\s*_+/i,
+      /^\(Enter integer\)/i,
     ];
 
     for (let line of pyqLines) {
       if (skipPatterns.some(p => p.test(line))) continue;
 
       // ── Question line: "Q1. [MCQ | 1 Mark | Negative: -0.33]" ──
-      // OR "Q1. some question text directly"
       const qMatch = line.match(/^Q(\d+)\.\s*(.*)/i);
       if (qMatch) {
         if (currentQuestion) questionsArray.push(currentQuestion);
@@ -119,7 +149,7 @@ exports.uploadPDFs = async (req, res) => {
         const answerInfo     = answerMap[String(questionNumber)] || {};
         const restOfLine     = qMatch[2].trim();
 
-        // Check if meta tag is inline with Q number
+        // Check if meta is inline: "Q1. [MCQ | 1 Mark...]"
         const metaInline = restOfLine.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i);
 
         let type          = answerInfo.type          || "MCQ";
@@ -150,7 +180,7 @@ exports.uploadPDFs = async (req, res) => {
       }
 
       if (currentQuestion) {
-        // ── Meta line: "[MCQ | 1 Mark | Negative: -0.33]" ──
+        // ── Meta line: "[MCQ | 1 Mark | Negative: -0.33]" on its own line ──
         const metaMatch = line.match(/^\[(MCQ|NAT)\s*\|\s*(\d+)\s*Marks?/i);
         if (metaMatch) {
           currentQuestion.type          = metaMatch[1].toUpperCase();
@@ -172,12 +202,11 @@ exports.uploadPDFs = async (req, res) => {
           if (currentQuestion.question === "") {
             currentQuestion.question = line;
           } else if (currentQuestion.options.length === 0) {
-            // Multi-line question — append
             currentQuestion.question += " " + line;
           }
         }
       } else {
-        // ── Section/Subject heading between questions ──
+        // ── Section/Subject heading ──
         if (
           line.length > 2 && line.length < 80 &&
           !line.match(/^\d/) &&
