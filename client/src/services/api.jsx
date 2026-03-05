@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || "http://localhost:5000/api", // ✅ uses env variable in production
+ baseURL: process.env.REACT_APP_API_URL || "/api", // ✅ uses env variable in production
 });
 
 // Attach JWT token automatically
