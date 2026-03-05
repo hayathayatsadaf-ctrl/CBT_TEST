@@ -17,7 +17,7 @@ const ExcelUploadPage = () => {
     setLoading(true); setError(null); setResult(null);
     try {
       const fd = new FormData();
-      fd.append("excelFile", file);
+      fd.append("excel", file);  // ← "excelFile" ki jagah "excel"
       fd.append("testName", testName || `GATE ${year}`);
       fd.append("year", year);
       fd.append("totalStudents", students);
