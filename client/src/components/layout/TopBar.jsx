@@ -1,9 +1,7 @@
 import React from "react";
-import Timer from "../test/Timer";
 
 const getImageUrl = (profileImage) => {
   if (!profileImage) return null;
-  // ✅ Replace localhost with production backend URL
   return profileImage.replace(
     "http://localhost:5000",
     process.env.REACT_APP_API_URL?.replace("/api", "") || "http://localhost:5000"
@@ -11,7 +9,6 @@ const getImageUrl = (profileImage) => {
 };
 
 const TopBar = ({ section, changeSection, user, sections: dynamicSections }) => {
-  // ✅ Use dynamic sections from DB, fallback to default
   const sections = dynamicSections?.length > 0
     ? dynamicSections
     : ["Aptitude", "Reasoning", "English", "Technical"];
@@ -55,9 +52,6 @@ const TopBar = ({ section, changeSection, user, sections: dynamicSections }) => 
           <span className="user-attempt">Attempt: {attemptNumber}/2</span>
         </div>
       </div>
-
-      {/* FAR RIGHT — Timer */}
-      <Timer />
 
     </div>
   );
