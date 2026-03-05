@@ -20,6 +20,7 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "https://cbt-test-backend.onrender.com",
+    /\.onrender\.com$/,
     /\.vercel\.app$/,
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -31,19 +32,31 @@ app.options("*", cors());
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Routes
+// ── API Routes ──────────────────────────────────────────────────
 const authRoutes   = require("./routes/authRoutes");
 const pdfRoutes    = require("./routes/pdfRoutes");
 const resultRoutes = require("./routes/resultRoutes");
-const excelRoutes  = require("./routes/excelRoutes");   // ← NEW
+const excelRoutes  = require("./routes/excelRoutes");
 
 app.use("/api/auth",   authRoutes);
 app.use("/api/pdf",    pdfRoutes);
 app.use("/api/result", resultRoutes);
-app.use("/api/excel",  excelRoutes);                    // ← NEW
+app.use("/api/excel",  excelRoutes);
 
-app.get("/", (req, res) => res.send("CBT Backend Running ✅"));
+// ── Serve React Frontend ────────────────────────────────────────
+const frontendBuild = path.join(__dirname, "../client/build");
 
+if (fs.existsSync(frontendBuild)) {
+  app.use(express.static(frontendBuild));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(frontendBuild, "index.html"));
+  });
+  console.log("✅ Serving React frontend");
+} else {
+  app.get("/", (req, res) => res.send("CBT Backend Running ✅"));
+}
+
+// ── MongoDB + Server ────────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB connected");
