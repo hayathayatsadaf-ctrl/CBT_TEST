@@ -22,51 +22,33 @@ const ResultPage = () => {
     fetchResult();
   }, []);
 
-  // ✅ FIX: fetch() use karo — axios blob download corrupt hota hai
+  // ✅ HTML page new tab mein khulega — browser print/save as PDF karega
   const handleDownloadPdf = async () => {
     setDownloading(true);
     try {
       const token   = localStorage.getItem("token");
-      // Environment variable use karna best hai, backup ke liye hardcoded rakho
       const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
 
       const response = await fetch(`${baseURL}/result/download-pdf`, {
         method:  "GET",
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Accept": "application/pdf" // Backend ko batao ki hume PDF chahiye
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!response.ok) {
-        const errorData = await response.json(); // Agar error hai toh JSON read karo
-        throw new Error(errorData.message || `Server error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
-      // FIX START: Pehle blob lo
-      const blob = await response.blob();
-      
-      // FIX: Seedha blob use karo, naya Blob banane ki zaroorat nahi hai
-      const url  = window.URL.createObjectURL(blob); 
-      
-      const link = document.createElement("a");
-      link.href  = url;
-      link.setAttribute("download", `GATE_Result_${result._id || "2026"}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      
-      // Cleanup
-      document.body.removeChild(link);
-      setTimeout(() => window.URL.revokeObjectURL(url), 5000); // 5 sec do memory free karne ke liye
-      
+      const html = await response.text();
+      const blob = new Blob([html], { type: "text/html" });
+      const url  = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+
     } catch (err) {
-      console.error("PDF download error:", err);
-      alert("PDF download failed: " + err.message);
+      console.error("PDF error:", err);
+      alert("Download failed: " + err.message);
     } finally {
       setDownloading(false);
     }
   };
-
 
   if (loading) return (
     <div style={styles.container}>
@@ -255,7 +237,7 @@ const ResultPage = () => {
           disabled={downloading}
           style={{ ...styles.pdfBtn, opacity: downloading ? 0.7 : 1 }}
         >
-          {downloading ? "⏳ Generating PDF..." : "📥 Download Result PDF"}
+          {downloading ? "⏳ Opening Result..." : "📥 Download Result PDF"}
         </button>
 
         {/* ACTION BUTTONS */}
