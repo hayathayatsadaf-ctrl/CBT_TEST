@@ -38,10 +38,17 @@ const handleDownloadPdf = async () => {
 
     const html = await response.text();
 
-    // Naya window kholo aur HTML seedha write karo
-    const printWindow = window.open("", "_blank");
-    printWindow.document.write(html);
-    printWindow.document.close();
+    // Base64 encode karke data URL banao — new tab mein khulega
+    const encoded = btoa(unescape(encodeURIComponent(html)));
+    const dataUrl = `data:text/html;base64,${encoded}`;
+    
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
   } catch (err) {
     console.error("PDF error:", err);
