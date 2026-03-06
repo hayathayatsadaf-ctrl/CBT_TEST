@@ -204,16 +204,48 @@ exports.downloadResultPdf = async (req, res) => {
     const result = await Result.findOne({ userId }).sort({ createdAt: -1 });
     if (!result) return res.status(404).json({ message: "No result found" });
 
-    const user       = await User.findById(userId).select("-password");
+    const user = await User.findById(userId).select("-password");
     const percentage = parseFloat(result.percentage ?? 0);
-    const passed     = percentage >= 50;
-    const W          = 515;
+    const passed = percentage >= 50;
+    const W = 515;
 
+    // 1. Create PDF instance
     const doc = new PDFDocument({ margin: 40, size: "A4" });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition",
-      `attachment; filename="GATE_Result_${user.rollNumber || userId}.pdf"`);
-    doc.pipe(res);
+
+    // 2. Buffer mein store karne ke liye array
+    let buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      let pdfData = Buffer.concat(buffers);
+
+      // 3. Sabse zaroori headers
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="GATE_Result_${user.rollNumber || userId}.pdf"`,
+        "Content-Length": pdfData.length
+      });
+
+      res.end(pdfData); // 👈 Final binary data send
+    });
+
+    // --- Baki sara PDF design logic (Header, Score box, etc.) yahan rahega ---
+    // Header
+    doc.rect(40, 40, W, 60).fill("#0369a1");
+    doc.fillColor("#ffffff").fontSize(20).font("Helvetica-Bold")
+       .text("GATE CBT — Test Result Report", 40, 58, { align: "center", width: W });
+
+    // ... (Tumhara baki sara design code jo pehle tha) ...
+
+    doc.end(); // 👈 Ye end hona zaroori hai
+
+  } catch (error) {
+    console.error("PDF error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "PDF generation failed", error: error.message });
+    }
+  }
+};
+
 
     // Header
     doc.rect(40, 40, W, 60).fill("#0369a1");
