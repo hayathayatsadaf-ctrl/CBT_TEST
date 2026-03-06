@@ -22,37 +22,38 @@ const ResultPage = () => {
     fetchResult();
   }, []);
 
-  // ✅ HTML page new tab mein khulega — browser print/save as PDF karega
-const handleDownloadPdf = () => {
-  const token   = localStorage.getItem("token");
-  const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
-  // Token query param mein bhejo — new tab mein seedha open hoga
-  window.open(`${baseURL}/result/download-pdf?token=${token}`, "_blank");
-};
+  // ✅ PDF download — new tab mein HTML page khulega, browser print karega
+  const handleDownloadPdf = async () => {
+    try {
+      setDownloading(true);
+      const token   = localStorage.getItem("token");
+      const baseURL = process.env.REACT_APP_API_URL || "/api";
+      const url     = `${baseURL}/result/download-pdf?token=${token}`;
 
-    if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    const html = await response.text();
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
-    // Base64 encode karke data URL banao — new tab mein khulega
-    const encoded = btoa(unescape(encodeURIComponent(html)));
-    const dataUrl = `data:text/html;base64,${encoded}`;
-    
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const html    = await response.text();
+      const encoded = btoa(unescape(encodeURIComponent(html)));
+      const dataUrl = `data:text/html;base64,${encoded}`;
 
-  } catch (err) {
-    console.error("PDF error:", err);
-    alert("Download failed: " + err.message);
-  } finally {
-    setDownloading(false);
-  }
-};
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("PDF error:", err);
+      alert("Download failed: " + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (loading) return (
     <div style={styles.container}>
