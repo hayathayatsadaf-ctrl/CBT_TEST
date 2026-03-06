@@ -23,16 +23,12 @@ const ResultPage = () => {
   }, []);
 
   // ✅ HTML page new tab mein khulega — browser print/save as PDF karega
-const handleDownloadPdf = async () => {
-  setDownloading(true);
-  try {
-    const token   = localStorage.getItem("token");
-    const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
-
-    const response = await fetch(`${baseURL}/result/download-pdf`, {
-      method:  "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
+const handleDownloadPdf = () => {
+  const token   = localStorage.getItem("token");
+  const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
+  // Token query param mein bhejo — new tab mein seedha open hoga
+  window.open(`${baseURL}/result/download-pdf?token=${token}`, "_blank");
+};
 
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
