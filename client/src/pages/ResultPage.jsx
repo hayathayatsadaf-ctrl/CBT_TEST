@@ -22,20 +22,32 @@ const ResultPage = () => {
     fetchResult();
   }, []);
 
+  // ✅ FIX: fetch() use karo — axios blob download corrupt hota hai
   const handleDownloadPdf = async () => {
     setDownloading(true);
     try {
-      const res = await API.get("/result/download-pdf", { responseType: "blob" });
-      const url  = window.URL.createObjectURL(new Blob([res.data]));
+      const token   = localStorage.getItem("token");
+      const baseURL = API.defaults.baseURL || "https://cbt-test-backend.onrender.com/api";
+
+      const response = await fetch(`${baseURL}/result/download-pdf`, {
+        method:  "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+      const blob = await response.blob();
+      const url  = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
       const link = document.createElement("a");
       link.href  = url;
       link.setAttribute("download", "GATE_Result.pdf");
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
     } catch (err) {
-      alert("PDF download failed. Please try again.");
+      console.error("PDF download error:", err);
+      alert("PDF download failed: " + err.message);
     } finally {
       setDownloading(false);
     }
@@ -175,9 +187,8 @@ const ResultPage = () => {
         <div style={styles.analysisBox}>
           <div style={styles.analysisTitle}>📈 Performance Analysis</div>
           <p style={styles.analysisText}>{analysis}</p>
-
-          <BarRow label="Score"    value={pct}      max={100} color={circleColor} />
-          <BarRow label="Accuracy" value={accuracy} max={100} color="#16a34a" />
+          <BarRow label="Score"    value={pct}      color={circleColor} />
+          <BarRow label="Accuracy" value={accuracy} color="#16a34a" />
         </div>
 
         {/* SUBJECT-WISE */}
@@ -212,14 +223,10 @@ const ResultPage = () => {
 
         {/* MARKS TABLE */}
         <div style={styles.marksTable}>
-          <MarksRow label="Marks Obtained"  value={result.totalMarks} />
+          <MarksRow label="Marks Obtained" value={result.totalMarks} />
           <MarksRow label="Total Possible"  value={result.totalPossibleMarks} />
           <MarksRow label="Percentage"      value={`${pct}%`} color={circleColor} />
-          <MarksRow
-            label="Status"
-            value={passed ? "PASS ✅" : "FAIL ❌"}
-            color={passed ? "#16a34a" : "#dc2626"}
-          />
+          <MarksRow label="Status" value={passed ? "PASS ✅" : "FAIL ❌"} color={passed ? "#16a34a" : "#dc2626"} />
         </div>
 
         {/* NO RETRY MSG */}
@@ -227,7 +234,7 @@ const ResultPage = () => {
           <div style={styles.noRetryMsg}>ℹ️ {noRetryMessage}</div>
         )}
 
-        {/* BUTTONS */}
+        {/* PDF BUTTON */}
         <button
           onClick={handleDownloadPdf}
           disabled={downloading}
@@ -236,6 +243,7 @@ const ResultPage = () => {
           {downloading ? "⏳ Generating PDF..." : "📥 Download Result PDF"}
         </button>
 
+        {/* ACTION BUTTONS */}
         <div style={{ ...styles.btnRow, marginTop: 10 }}>
           {showRetry && (
             <button onClick={() => navigate("/test")} style={styles.retryBtn}>
@@ -255,7 +263,6 @@ const ResultPage = () => {
   );
 };
 
-// ── MINI COMPONENTS ────────────────────────────────────────────────
 const StatBox = ({ value, label, bg, color }) => (
   <div style={{ backgroundColor: bg, borderRadius: 10, padding: "14px 10px", textAlign: "center" }}>
     <div style={{ fontSize: 26, fontWeight: "bold", color }}>{value}</div>
@@ -287,7 +294,6 @@ const MarksRow = ({ label, value, color = "#1a3a8f" }) => (
   </>
 );
 
-// ── STYLES ─────────────────────────────────────────────────────────
 const styles = {
   container: {
     minHeight: "100vh",
@@ -316,8 +322,7 @@ const styles = {
     width: 130, height: 130, borderRadius: "50%",
     display: "flex", flexDirection: "column",
     justifyContent: "center", alignItems: "center",
-    margin: "0 auto 20px",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+    margin: "0 auto 20px", boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
   },
   scoreNumber: { fontSize: 38, fontWeight: "bold", color: "#fff" },
   scoreLabel:  { fontSize: 12, color: "rgba(255,255,255,0.8)" },
@@ -330,15 +335,12 @@ const styles = {
     backgroundColor: "#fefce8", border: "1px solid #fde68a",
     borderRadius: 12, padding: "16px 20px", textAlign: "center", marginBottom: 20,
   },
-  rankTop:  { display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 8 },
-  rankText: { fontSize: 16, color: "#92400e", fontWeight: 600 },
-  rankSub:  { fontSize: 13, color: "#78716c", marginTop: 2 },
-  rankBarBg: {
-    backgroundColor: "#e5e7eb", borderRadius: 99,
-    height: 8, margin: "10px 0 4px", overflow: "hidden",
-  },
-  rankBarFill:  { height: "100%", borderRadius: 99, transition: "width 1s ease" },
-  rankBarLabel: { fontSize: 12, color: "#78716c" },
+  rankTop:     { display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 8 },
+  rankText:    { fontSize: 16, color: "#92400e", fontWeight: 600 },
+  rankSub:     { fontSize: 13, color: "#78716c", marginTop: 2 },
+  rankBarBg:   { backgroundColor: "#e5e7eb", borderRadius: 99, height: 8, margin: "10px 0 4px", overflow: "hidden" },
+  rankBarFill: { height: "100%", borderRadius: 99, transition: "width 1s ease" },
+  rankBarLabel:{ fontSize: 12, color: "#78716c" },
   notSelectedBadge: {
     textAlign: "center", fontSize: 15, fontWeight: 700,
     backgroundColor: "#fee2e2", color: "#991b1b",
@@ -351,11 +353,8 @@ const styles = {
   },
   analysisTitle: { fontSize: 14, fontWeight: 700, color: "#1a3a8f", marginBottom: 6 },
   analysisText:  { fontSize: 13, color: "#374151", lineHeight: 1.6, margin: "0 0 8px" },
-  breakdownBarBg: {
-    flex: 1, backgroundColor: "#e5e7eb",
-    borderRadius: 99, height: 8, overflow: "hidden",
-  },
-  breakdownBarFill: { height: "100%", borderRadius: 99, transition: "width 0.8s ease" },
+  breakdownBarBg:  { flex: 1, backgroundColor: "#e5e7eb", borderRadius: 99, height: 8, overflow: "hidden" },
+  breakdownBarFill:{ height: "100%", borderRadius: 99, transition: "width 0.8s ease" },
   subjectSection: { marginBottom: 20 },
   subjectTitle:   { fontSize: 15, fontWeight: "bold", color: "#1a3a8f", marginBottom: 12 },
   subjectRow: {
@@ -375,16 +374,13 @@ const styles = {
   noRetryMsg: {
     backgroundColor: "#fff7ed", border: "1px solid #fed7aa",
     color: "#9a3412", borderRadius: 8,
-    padding: "12px 16px", fontSize: 13,
-    marginBottom: 16, textAlign: "center",
+    padding: "12px 16px", fontSize: 13, marginBottom: 16, textAlign: "center",
   },
   pdfBtn: {
-    width: "100%", padding: 13,
-    backgroundColor: "#0369a1", color: "#fff",
-    border: "none", borderRadius: 8,
-    fontSize: 15, fontWeight: "bold", cursor: "pointer",
+    width: "100%", padding: 13, backgroundColor: "#0369a1", color: "#fff",
+    border: "none", borderRadius: 8, fontSize: 15, fontWeight: "bold", cursor: "pointer",
   },
-  btnRow:  { display: "flex", gap: 12 },
+  btnRow:   { display: "flex", gap: 12 },
   retryBtn: {
     flex: 1, padding: 12, backgroundColor: "#1a3a8f", color: "#fff",
     border: "none", borderRadius: 8, fontSize: 15, fontWeight: "bold", cursor: "pointer",
