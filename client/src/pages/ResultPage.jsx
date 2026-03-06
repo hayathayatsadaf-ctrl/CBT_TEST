@@ -22,7 +22,6 @@ const ResultPage = () => {
     fetchResult();
   }, []);
 
-  // ✅ PDF download — new tab mein HTML page khulega, browser print karega
   const handleDownloadPdf = async () => {
     try {
       setDownloading(true);
@@ -36,17 +35,26 @@ const ResultPage = () => {
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
-      const html    = await response.text();
-      const encoded = btoa(unescape(encodeURIComponent(html)));
-      const dataUrl = `data:text/html;base64,${encoded}`;
+      const html = await response.text();
 
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // ✅ New window mein directly HTML inject karo — blank page fix
+      const newWin = window.open("", "_blank");
+      if (newWin) {
+        newWin.document.open();
+        newWin.document.write(html);
+        newWin.document.close();
+      } else {
+        // Popup blocked hogi toh Blob use karo
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+      }
     } catch (err) {
       console.error("PDF error:", err);
       alert("Download failed: " + err.message);
