@@ -27,24 +27,38 @@ const ResultPage = () => {
     setDownloading(true);
     try {
       const token   = localStorage.getItem("token");
-       const baseURL = API.defaults.baseURL || "https://cbt-test-02.onrender.com/api";
+      // Environment variable use karna best hai, backup ke liye hardcoded rakho
+      const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
 
       const response = await fetch(`${baseURL}/result/download-pdf`, {
         method:  "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Accept": "application/pdf" // Backend ko batao ki hume PDF chahiye
+        },
       });
 
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json(); // Agar error hai toh JSON read karo
+        throw new Error(errorData.message || `Server error: ${response.status}`);
+      }
 
+      // FIX START: Pehle blob lo
       const blob = await response.blob();
-      const url  = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      
+      // FIX: Seedha blob use karo, naya Blob banane ki zaroorat nahi hai
+      const url  = window.URL.createObjectURL(blob); 
+      
       const link = document.createElement("a");
       link.href  = url;
-      link.setAttribute("download", "GATE_Result.pdf");
+      link.setAttribute("download", `GATE_Result_${result._id || "2026"}.pdf`);
       document.body.appendChild(link);
       link.click();
-      link.remove();
-      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+      
+      // Cleanup
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000); // 5 sec do memory free karne ke liye
+      
     } catch (err) {
       console.error("PDF download error:", err);
       alert("PDF download failed: " + err.message);
@@ -52,6 +66,7 @@ const ResultPage = () => {
       setDownloading(false);
     }
   };
+
 
   if (loading) return (
     <div style={styles.container}>
