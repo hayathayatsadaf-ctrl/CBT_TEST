@@ -2,6 +2,7 @@ const Result      = require("../models/Result");
 const Question    = require("../models/Question");
 const TestAttempt = require("../models/TestAttempt");
 const User        = require("../models/User");
+const jwt         = require("jsonwebtoken");
 
 // ── REALISTIC RANK CALCULATOR ─────────────────────────────────────
 function calculateRealisticRank(percentage) {
@@ -121,20 +122,14 @@ exports.checkAttempts = async (req, res) => {
   }
 };
 
-// ── DOWNLOAD RESULT — HTML page (browser prints as PDF) ───────────
+// ── DOWNLOAD RESULT PDF ───────────────────────────────────────────
 exports.downloadResultPdf = async (req, res) => {
   try {
-    // Token header se ya query param se lo
-    const token = req.headers.authorization?.split(" ")[1] || req.query.token;
-    const jwt   = require("jsonwebtoken");
+    // Token header ya query param se lo
+    const token   = req.headers.authorization?.split(" ")[1] || req.query.token;
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId  = decoded.id;
-  }
-    // ... baaki code same rahega
 
-exports.downloadResultPdf = async (req, res) => {
-  try {
-    const userId = req.user.id;
     const result = await Result.findOne({ userId }).sort({ createdAt: -1 });
     if (!result) return res.status(404).json({ message: "No result found" });
 
@@ -153,7 +148,12 @@ exports.downloadResultPdf = async (req, res) => {
     const subjectRows = (result.subjectWisePerformance || []).map(s => {
       const tot = s.correct + s.wrong;
       const acc = tot > 0 ? ((s.correct / tot) * 100).toFixed(1) : "0";
-      return `<tr><td>${s.subject}</td><td style="color:#16a34a;font-weight:bold">${s.correct}</td><td style="color:#dc2626;font-weight:bold">${s.wrong}</td><td>${acc}%</td></tr>`;
+      return `<tr>
+        <td>${s.subject}</td>
+        <td style="color:#16a34a;font-weight:bold">${s.correct}</td>
+        <td style="color:#dc2626;font-weight:bold">${s.wrong}</td>
+        <td>${acc}%</td>
+      </tr>`;
     }).join("");
 
     const betterThan = result.totalStudents > 0
