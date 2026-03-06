@@ -124,6 +124,16 @@ exports.checkAttempts = async (req, res) => {
 // ── DOWNLOAD RESULT — HTML page (browser prints as PDF) ───────────
 exports.downloadResultPdf = async (req, res) => {
   try {
+    // Token header se ya query param se lo
+    const token = req.headers.authorization?.split(" ")[1] || req.query.token;
+    const jwt   = require("jsonwebtoken");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId  = decoded.id;
+  }
+    // ... baaki code same rahega
+
+exports.downloadResultPdf = async (req, res) => {
+  try {
     const userId = req.user.id;
     const result = await Result.findOne({ userId }).sort({ createdAt: -1 });
     if (!result) return res.status(404).json({ message: "No result found" });
