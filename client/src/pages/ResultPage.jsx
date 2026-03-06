@@ -27,7 +27,7 @@ const ResultPage = () => {
     setDownloading(true);
     try {
       const token   = localStorage.getItem("token");
-      const baseURL = API.defaults.baseURL || "https://cbt-test-backend.onrender.com/api";
+       const baseURL = API.defaults.baseURL || "https://cbt-test-02.onrender.com/api";
 
       const response = await fetch(`${baseURL}/result/download-pdf`, {
         method:  "GET",
