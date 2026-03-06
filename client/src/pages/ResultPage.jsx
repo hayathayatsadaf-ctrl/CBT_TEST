@@ -23,32 +23,33 @@ const ResultPage = () => {
   }, []);
 
   // ✅ HTML page new tab mein khulega — browser print/save as PDF karega
-  const handleDownloadPdf = async () => {
-    setDownloading(true);
-    try {
-      const token   = localStorage.getItem("token");
-      const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
+const handleDownloadPdf = async () => {
+  setDownloading(true);
+  try {
+    const token   = localStorage.getItem("token");
+    const baseURL = process.env.REACT_APP_API_URL || "https://cbt-test-02.onrender.com/api";
 
-      const response = await fetch(`${baseURL}/result/download-pdf`, {
-        method:  "GET",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+    const response = await fetch(`${baseURL}/result/download-pdf`, {
+      method:  "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+    if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
-      const html = await response.text();
-      const blob = new Blob([html], { type: "text/html" });
-      const url  = window.URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    const html = await response.text();
 
-    } catch (err) {
-      console.error("PDF error:", err);
-      alert("Download failed: " + err.message);
-    } finally {
-      setDownloading(false);
-    }
-  };
+    // Naya window kholo aur HTML seedha write karo
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(html);
+    printWindow.document.close();
+
+  } catch (err) {
+    console.error("PDF error:", err);
+    alert("Download failed: " + err.message);
+  } finally {
+    setDownloading(false);
+  }
+};
 
   if (loading) return (
     <div style={styles.container}>
